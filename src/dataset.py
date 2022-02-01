@@ -206,17 +206,29 @@ class Dataset():
 
     def create_dataset(self):
         if self.dataset_type == "labeled" or self.dataset_type == "student":
-            # List of the filepaths for images and labels
-            images_paths = [
-                os.path.join(
-                    self.configs.dataset_path,
-                    self.configs.images_dir,
-                    file + ".jpg") for file in self.file_names]
-            labels_paths = [
-                os.path.join(
-                    self.configs.dataset_path,
-                    self.configs.labels_dir,
-                    file + ".xml") for file in self.file_names]
+            if self.dataset_type == "labeled":
+                # List of the filepaths for images and labels
+                images_paths = [
+                    os.path.join(
+                        self.configs.dataset_path,
+                        self.configs.images_dir,
+                        file + ".jpg") for file in self.file_names]
+                labels_paths = [
+                    os.path.join(
+                        self.configs.dataset_path,
+                        self.configs.labels_dir,
+                        file + ".xml") for file in self.file_names]
+            elif self.dataset_type == "student":
+                images_paths = [
+                    os.path.join(
+                        self.configs.dataset_path,
+                        self.configs.student_images_dir,
+                        file + ".jpg") for file in self.file_names]
+                labels_paths = [
+                    os.path.join(
+                        self.configs.dataset_path,
+                        self.configs.student_labels_dir,
+                        file + ".xml") for file in self.file_names]
             # Create the dataset object for the images
             image_list_ds = tf.data.Dataset.from_tensor_slices(images_paths)
             l_image_ds = image_list_ds.map(
