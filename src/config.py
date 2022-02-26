@@ -26,6 +26,9 @@ class Configs():
             "serialized")
         self.labels_dir = "labels"
         self.images_dir = "images"
+        self.student_images_dir = "images_student"
+        self.student_labels_dir = "labels_student"
+
         # Dataset
         self.batch_size = 2 # Keep in multiples of 8 # same as mpl batch size
         self.unlabeled_batch_size = None # same as uda batch size
@@ -36,21 +39,11 @@ class Configs():
         self.transfer_learning = "imagenet" # Or name of directory
         self.epochs = 150
         self.total_steps = None # To be updated with dataset
+        self.student_total_steps = None
         self.evaluate = 5 # Evaluates every 5 epochs
         self.max_checkpoints = 5
-        # Student Training
-        self.student_epochs = 50
-        self.student_total_steps = None
-        self.student_lr = 0.00004
-        self.student_batch_size = self.batch_size * 2
+        self.checkpoint_frequency = 10
         # MPL
-        # self.mpl_num_augments = 2
-        # self.mpl_augment_magnitude = 16
-        # self.mpl_augment_cutout_const = 32 // 8
-        # self.mpl_augment_translate_const = 32 // 8
-        # self.mpl_augment_ops_path = "dataset/augmentation.txt"
-        # self.mpl_batch_size = None
-        # self.mpl_unlabeled_batch_size_multiplier = 7
         self.mpl_label_smoothing = 0.15
         self.uda_label_temperature = 0.7
         self.uda_threshold = 0.5
@@ -64,6 +57,15 @@ class Configs():
         self.teacher_learning_rate = 0.08
         self.teacher_learning_rate_warmup = 50
         self.teacher_learning_rate_numwait = 0
+        # Student Training
+        self.student_batch_size = self.batch_size * 2
+        self.student_dataset_size = 0
+        self.student_epochs = 50
+        self.student_total_steps = None
+        self.student_batch_size = self.batch_size * 2
+        self.student_learning_rate = 0.00004
+        self.student_learning_rate_warmup = 50
+        self.student_learning_rate_numwait = 0
 
         if self.training_type == "cls" or self.training_type == "":
             # Input 
@@ -77,11 +79,11 @@ class Configs():
             self.student_dropout_rate = 0.2
             self.teacher_dropout_rate = 0.2
             # Optimizer
-            self.student_optimizer_momentum = 0.9
-            self.student_optimizer_nesterov = True
-            self.mpl_optimizer_momentum = 0.9
-            self.mpl_optimizer_nesterov = True
-            self.mpl_optimizer_grad_bound = 1e9
+            self.tutor_optimizer_momentum = 0.9
+            self.tutor_optimizer_nesterov = True
+            self.teacher_optimizer_momentum = 0.9
+            self.teacher_optimizer_nesterov = True
+            self.teacher_optimizer_grad_bound = 1e9
 
         elif self.training_type == "obd":
             self.network_type = "D0"
@@ -146,7 +148,8 @@ class Configs():
             self.image_dims = (473, 473)
             # Dir info
             self.labels_path = os.path.join(
-                dataset_path, "labels.txt")
+                dataset_path, 
+                "labels.txt")
             self.labels = t_utils.parse_label_file(self.labels_path)
             self.num_classes = len(self.labels)
 
@@ -159,10 +162,18 @@ class Configs():
         #     dataset_size / self.finetune_batch_size) * self.finetune_epochs
         self.unlabeled_batch_size = int(
             unlabeled_data_size / (dataset_size / self.batch_size))
-        self.mpl_batch_size = self.batch_size
-        self.student_learning_rate_warmup = int(
+        self.tutor_learning_rate_warmup = int(
             0.05 * self.total_steps)
         self.teacher_learning_rate_warmup = int(
             0.0 * self.total_steps)
-        self.student_learning_rate_numwait = int(
+        self.tutor_learning_rate_numwait = int(
             0.02 * self.total_steps)
+
+    def update_student_training_configs(self, dataset_size):
+        """Updates student training configs related to steps."""
+        self.student_total_steps = int(
+            dataset_size / self.student_dataset_size) * self.student_epochs
+        self.student_learning_rate_warmup = int(
+            0.05 * self.student_total_steps)
+        self.student_learning_rate_numwait = int(
+            0.00 * self.student_total_steps)

@@ -84,9 +84,7 @@ def train_mpl(l_dataset, u_dataset, configs):
         configs.max_checkpoints)
     
     # Training steps
-    best_val_loss = 0
     step = tf.Variable(0, dtype=tf.int64)
-    continue_step = 0
     total_steps = configs.total_steps
 
     # Training losses
@@ -261,16 +259,22 @@ def train_mpl(l_dataset, u_dataset, configs):
     
     for epoch in range(configs.epochs):
         print(" <---------- Epoch: " + str(epoch) + " ---------->")
-        for l_image, label, bboxs in l_dataset:
-            u_image, u_augim = next(iter(u_dataset))
+        for l_images, l_labels in l_dataset:
+            u_orgims, u_augims = next(iter(u_dataset))
             step = step + 1
+            losses = train_step(
+                step = step,
+                l_images = l_images,
+                l_labels = l_labels,
+                u_orgims = u_orgims,
+                u_augims = u_augims)
             tutor_optimizer.learning_rate.assign(
                 training_utils.learning_rate(
                     step,
-                    configs.student_learning_rate,
+                    configs.tutor_learning_rate,
                     total_steps,
-                    configs.student_learning_rate_warmup,
-                    configs.student_learning_rate_numwait))            
+                    configs.tutor_learning_rate_warmup,
+                    configs.tutor_learning_rate_numwait))            
             teacher_optimizer.learning_rate.assign(
                 training_utils.learning_rate(
                     step,
@@ -278,24 +282,30 @@ def train_mpl(l_dataset, u_dataset, configs):
                     total_steps,
                     configs.teacher_learning_rate_warmup,
                     configs.teacher_learning_rate_numwait))
-
-            uda_weight = configs.uda_weight * tf.math.minimum(
-                1.0, float(step) / float(configs.uda_steps))
-            # tf.summary.trace_on(graph = True)
-            losses = train_step(
-                step, l_image, [label, bboxs], u_image, u_augim, uda_weight)
+            # uda_weight = configs.uda_weight * tf.math.minimum(
+            #     1.0, float(step) / float(configs.uda_steps))
             training_utils.update_ema_weights(
-                configs, ema_model, tutor_model, step)
-            training_utils.update_tensorboard(
-                losses = losses, 
-                step = step, 
-                teacher_optimizer = teacher_optimizer, 
-                tutor_optimizer = tutor_optimizer,
-                tensorboard_dir = tensorboard_dir)
-            # Save each checkpoint, only the best
-            teacher_checkpoint_manager.save()
-            tutor_checkpoint_manager.save()
-            ema_checkpoint_manager.save()
+                configs, 
+                ema_model, 
+                tutor_model, 
+                step)
+            if step % configs.checkpoint_frequency == 0:
+                # Update logging on TB
+                tf.summary.scalar(
+                    "Tutor/Learning-Rate",
+                    data = tutor_optimizer.learning_rate,
+                    step = step)
+                tf.summary.scalar(
+                    "Teacher/Learning-Rate",
+                    data = teacher_optimizer.learning_rate,
+                    step = step)
+                training_utils.update_tensorboard(
+                    losses = losses, 
+                    step = step)
+                # Save each checkpoint, only the best
+                teacher_checkpoint_manager.save()
+                tutor_checkpoint_manager.save()
+                ema_checkpoint_manager.save()
         
         # Save model every epoch
         tf.keras.models.save_model(
@@ -307,12 +317,13 @@ def train_pl(l_dataset, u_dataset, configs):
     """Trains the PL Student."""
     # Clear backend from MPL training
     tf.keras.backend.clear_session()
-    # Load the tutor model, and save the predictions.
+    # Define directories
+    student_exported_dir = os.path.join(
+        configs.training_dir, 
+        "student-exported")
     tutor_exported_dir = os.path.join(
         configs.training_dir, 
         "tutor-exported")
-    tutor_model = tf.keras.models.load_model(
-        tutor_exported_dir)
     pl_dataset_dir = os.path.join(
         configs.dataset_path,
         "pl_dataset")
@@ -322,6 +333,24 @@ def train_pl(l_dataset, u_dataset, configs):
     # Makes the training directory if it does not exist
     if not os.path.exists(pl_dataset_dir):
         os.makedirs(pl_dataset_dir)
+        os.makedirs(os.path.join(
+            pl_dataset_dir,
+            configs.student_images_dir))
+        os.makedirs(os.path.join(
+            pl_dataset_dir,
+            configs.student_labels_dir))
+
+    # Initialize Tensorboard
+    tensorboard_dir = os.path.join(
+        configs.training_dir, "tensorboard-student")
+    if os.path.exists(tensorboard_dir) == False:
+        os.makedirs(tensorboard_dir)
+    tensorboard_file_writer = tf.summary.create_file_writer(tensorboard_dir)
+    tensorboard_file_writer.set_as_default()
+
+    # Loads the tutor model from save
+    tutor_model = tf.keras.models.load_model(
+        tutor_exported_dir)
 
     # Step 5: Run tutor model on unlabeled data and save.
     counter = 0
@@ -334,10 +363,12 @@ def train_pl(l_dataset, u_dataset, configs):
             counter+=1
             file_name = configs.training_type + "-" + str(counter).zfill(6)
             file_path_img = os.path.join(
-                str(pl_dataset_dir)+"image",
+                pl_dataset_dir,
+                configs.student_images_dir,
                 file_name + ".jpg")
             file_path_xml = os.path.join(
-                str(pl_dataset_dir)+"label",
+                pl_dataset_dir,
+                configs.student_labels_dir,
                 file_name + ".xml")
             # Save the image
             tf.keras.utils.save_img(
@@ -375,3 +406,95 @@ def train_pl(l_dataset, u_dataset, configs):
     tf.keras.backend.clear_session()
 
     # Create the student dataset pipeline.
+    student_file_names = dataset.load_data(
+        configs = configs,
+        dataset_type = "student")
+    student_dataset_func = dataset.Dataset(
+        file_names = student_file_names,
+        configs = configs,
+        dataset_type = "student")
+    student_ds = student_dataset_func.create_dataset()
+
+    # Update the configs based on the new dataset
+    configs.update_student_training_configs(
+        len(student_file_names))
+
+    # Build the model and the optimizer
+    student_model = efficientdet.build_model(
+        configs, 
+        name = "student")
+    student_checkpoint_dir = os.path.join(
+        configs.training_dir, "student")
+    student_checkpoint = tf.train.Checkpoint(
+        model = student_model)
+    student_checkpoint_manager = tf.train.CheckpointManager(
+        student_checkpoint, 
+        student_checkpoint_dir, 
+        configs.max_checkpoints)
+
+    # Create the optimizers
+    optimizers = training_utils.object_detection_optimizer()
+    _, _, student_optimizer = optimizers
+
+    # Training losses
+    focal_func = effdet_loss.FocalLoss(configs = configs)
+    regression_func = effdet_loss.RegressionLoss(configs = configs)
+
+    @tf.function
+    def train_student_step(
+        step,
+        images,
+        labels):
+        """Trains one step on the student."""
+        labels = labels.numpy() # Labels to numpy for loss calulation
+        with tf.GradientTape() as s_tape:
+            logits = student_model(images, training = True)
+            cls_loss = focal_func(
+                y_true = labels,
+                y_pred = logits)
+            box_loss = regression_func(
+                y_true = labels,
+                y_pred = logits)
+            loss = tf.math.reduce_mean(cls_loss) + \
+                tf.math.reduce_mean(box_loss)
+            if configs.mixed_precision:
+                loss = student_optimizer.get_scaled_loss(loss)
+        
+        gradients = s_tape.gradient(
+            loss, student_model.trainable_variables)
+        if configs.mixed_precision:
+            gradients = student_optimizer.get_unscaled_gradients(
+                gradients)
+        student_optimizer.apply_gradients(
+            zip(gradients, student_model.trainable_variables))
+        return {"student-loss": loss}
+
+    # Training steps
+    step = tf.Variable(0, dtype=tf.int64)
+    total_steps = configs.total_steps
+
+    for epoch in configs.student_epochs:
+        for images, labels in student_ds:
+            step = step + 1
+            loss = train_student_step(
+                step = step,
+                images = images,
+                labels = labels)
+            student_optimizer.learning_rate.assign(
+                training_utils.learning_rate(
+                    step,
+                    configs.student_learning_rate,
+                    total_steps,
+                    configs.student_learning_rate_warmup,
+                    configs.student_learning_rate_numwait)) 
+            tf.summary.scalar(
+                "Student-Learning-Rate",
+                data = student_optimizer.learning_rate,
+                step = step)
+            training_utils.update_tensorboard(
+                losses = loss, 
+                step = step)
+            student_checkpoint_manager.save()
+        
+        tf.keras.models.save_model(
+            student_model, student_exported_dir)

@@ -3,7 +3,7 @@
 import tensorflow as tf
 
 import src.dataset as dataset
-import src.configs as config
+import src.config as config
 import src.losses.effdet_loss as effdet_loss
 import src.models.efficientnet as efficientnet
 import src.models.bifpn as bifpn

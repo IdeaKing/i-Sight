@@ -214,36 +214,12 @@ def cosine_decay_with_warmup(
     return np.where(global_step > total_steps, 0.0, learning_rate)
 
 
-def update_tensorboard(
-    losses, step, teacher_optimizer, tutor_optimizer):
+def update_tensorboard(losses, step):
     # Adds learning rate information to TB
-    tf.summary.scalar(
-        "Tutor/Learning-Rate",
-        data = tutor_optimizer.learning_rate,
-        step = step)
-    tf.summary.scalar(
-        "Teacher/Learning-Rate",
-        data = teacher_optimizer.learning_rate,
-        step = step)
-    tf.summary.scalar(
-        "Moving Dot Product: All Modes",
-        data = losses.get("moving-dot-product"),
-        step = step)
-    tf.summary.scalar(
-        "Teacher/Labeled-Data",
-        data = losses.get("tutor-on-l"),
-        step = step)
-    tf.summary.scalar(
-        "Tutor/Labeled-Data",
-        data = losses.get("tutor-on-l"),
-        step = step)
-    tf.summary.scalar(
-        "Teacher/Unlabeled-Data",
-        data = losses.get("teacher-on-u"),
-        step = step)
-    tf.summary.scalar(
-        "Tutor/Unlabeled-Data",
-        data = losses.get("student-on-u"),
-        step = step)
+    for loss in losses:
+        tf.summary.scalar(
+            loss,
+            data = losses.get(losses[loss]),
+            step = step)
 
     tf.summary.flush()
