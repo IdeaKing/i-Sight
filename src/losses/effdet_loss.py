@@ -83,7 +83,7 @@ class FocalLoss:
                 box_1=anchor, 
                 box_2=box_annotation[:, :4]).calculate_iou()
             iou_max = tf.math.reduce_max(iou_value, axis=1)
-            iou_argmax = tf.math.argmax(iou_value, axis=1)
+            iou_argmax = tf.stop_gradient(tf.math.argmax(iou_value, axis=1))
             targets = tf.ones_like(class_result) * -1
             targets = item_assignment(
                 input_tensor=targets,

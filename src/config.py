@@ -155,8 +155,8 @@ class Configs():
         """Updates training configs related to steps and warmup."""
         self.total_steps = int(
             dataset_size / self.batch_size) * self.epochs
-        self.finetune_total_steps = int(
-            dataset_size / self.finetune_batch_size) * self.finetune_epochs
+        # self.finetune_total_steps = int(
+        #     dataset_size / self.finetune_batch_size) * self.finetune_epochs
         self.unlabeled_batch_size = int(
             unlabeled_data_size / (dataset_size / self.batch_size))
         self.mpl_batch_size = self.batch_size
