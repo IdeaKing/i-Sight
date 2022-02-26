@@ -31,7 +31,7 @@ class UDA:
                  self.configs.unlabeled_batch_size,
                  self.configs.unlabeled_batch_size],
                 axis = 0)
-
+            
             # Step 1: Loss for Labeled Values
             loss["l"] = tf.math.reduce_mean(self.cls_loss(labels["l"], logits["l"])) + \
                         tf.math.reduce_mean(self.box_loss(labels["l"], logits["l"]))

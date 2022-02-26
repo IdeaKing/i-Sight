@@ -30,7 +30,7 @@ class Configs():
         self.student_labels_dir = "labels_student"
 
         # Dataset
-        self.batch_size = 2 # Keep in multiples of 8 # same as mpl batch size
+        self.batch_size = 4 # Keep in multiples of 8 # same as mpl batch size
         self.unlabeled_batch_size = None # same as uda batch size
         self.buffer_size = 64
         self.shuffle_size = 64
@@ -45,6 +45,7 @@ class Configs():
         self.checkpoint_frequency = 10
         # MPL
         self.mpl_label_smoothing = 0.15
+        self.mpl_optimizer_grad_bound = 1e9
         self.uda_label_temperature = 0.7
         self.uda_threshold = 0.5
         self.uda_weight = 8.0
@@ -88,7 +89,7 @@ class Configs():
         elif self.training_type == "obd":
             self.network_type = "D0"
             # Network configurations
-            self.image_size = {"D0": (512, 512), "D1": (640, 640), 
+            self.image_size = {"D0": (256, 256), "D1": (640, 640), 
                                "D2": (768, 768), "D3": (896, 896), 
                                "D4": (1024, 1024), "D5": (1280, 1280), 
                                "D6": (1408, 1408), "D7": (1536, 1536)}

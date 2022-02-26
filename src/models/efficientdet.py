@@ -36,7 +36,7 @@ def model_builder(configs, name):
 
 class BoxTransform:
     def __call__(self, boxes, deltas, *args, **kwargs):
-        deltas = deltas.numpy()
+        deltas = deltas #.numpy()
         widths = boxes[:, :, 2] - boxes[:, :, 0]
         heights = boxes[:, :, 3] - boxes[:, :, 1]
         center_x = boxes[:, :, 0] + 0.5 * widths
@@ -64,7 +64,7 @@ class BoxTransform:
 
 class ClipBoxes:
     def __init__(self, configs):
-        self.height, self.width = configs.image_dims, configs.image_dims
+        self.height, self.width = configs.image_dims[0], configs.image_dims[1]
 
     def __call__(self, boxes, *args, **kwargs):
         boxes[:, :, 0] = np.clip(a=boxes[:, :, 0], a_min=0, a_max=self.width - 1)
@@ -77,8 +77,8 @@ class ClipBoxes:
 class MapToInputImage:
     def __init__(self, input_image_size, configs):
         self.h, self.w = input_image_size
-        self.x_ratio = self.w / configs.image_dims
-        self.y_ratio = self.h / configs.image_dims
+        self.x_ratio = self.w / configs.image_dims[0]
+        self.y_ratio = self.h / configs.image_dims[1]
 
     def __call__(self, boxes, *args, **kwargs):
         boxes[:, :, 0] = boxes[:, :, 0] * self.x_ratio

@@ -23,8 +23,9 @@ def object_detection_optimizer(configs):
 def object_detection_logits_into_labels(configs, logits):
     """Change the logits into labels for object detection."""
     anchors = anchor.Anchors(
-        scales = configs.scales, 
-        ratios = configs.ratios)(image_size = configs.image_dims)
+        scales=configs.scales, 
+        ratios=configs.ratios,
+        configs=configs)(image_size=configs.image_dims)
     nms = NMS.NMS(configs = configs)
     box_transform = efficientdet.BoxTransform()
     clip_boxes = efficientdet.ClipBoxes(configs)
