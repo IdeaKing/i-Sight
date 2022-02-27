@@ -252,10 +252,12 @@ class Dataset():
                 buffer_size = self.configs.shuffle_size)
             if self.dataset_type == "student":
                 ds = ds.batch(
-                    self.configs.student_batch_size)
+                    self.configs.student_batch_size,
+                    drop_remainder=True)
             else:
                 ds = ds.batch(
-                    self.configs.batch_size)
+                    self.configs.batch_size,
+                    drop_remainder=True)
             ds = ds.prefetch(
                 buffer_size = tf.data.experimental.AUTOTUNE)
             return ds
@@ -288,7 +290,8 @@ class Dataset():
             ds = ds.shuffle(
                 buffer_size = self.configs.shuffle_size)
             ds = ds.batch(
-                self.configs.unlabeled_batch_size)
+                self.configs.unlabeled_batch_size,
+                drop_remainder=True)
             ds = ds.prefetch(
                 buffer_size = tf.data.experimental.AUTOTUNE)
             return ds
