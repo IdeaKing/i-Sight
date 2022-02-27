@@ -94,26 +94,30 @@ class FocalLoss:
             iou_max = tf.math.reduce_max(iou_value, axis=1)
             iou_argmax = tf.math.argmax(iou_value, axis=1)
             targets = tf.ones_like(class_result) * -1
-            targets = item_assignment(input_tensor=targets,
-                                      boolean_mask=tf.math.less(iou_max, 0.4),
-                                      value=0,
-                                      axes=[1])
+            targets = item_assignment(
+                input_tensor=targets,
+                boolean_mask=tf.math.less(iou_max, 0.4),
+                value=0,
+                axes=[1])
             positive_indices = tf.math.greater(iou_max, 0.5)
-            num_positive_anchors = tf.reduce_sum(tf.dtypes.cast(x=positive_indices, dtype=tf.int32))
+            num_positive_anchors = tf.reduce_sum(
+                tf.dtypes.cast(x=positive_indices, dtype=tf.int32))
             
             assigned_annotations = box_annotation[iou_argmax, :]
 
-            targets = item_assignment(input_tensor=targets,
-                                      boolean_mask=positive_indices,
-                                      value=0,
-                                      axes=[1])
+            targets = item_assignment(
+                input_tensor=targets,
+                boolean_mask=positive_indices,
+                value=0,
+                axes=[1])
 
-            targets = advanced_item_assignmnet(input_tensor=targets,
-                                               boolean_mask=positive_indices,
-                                               value=1,
-                                               target_elements=tf.convert_to_tensor(
-                                                   assigned_annotations[:, 4], dtype=tf.float32),
-                                               elements_axis=1)
+            targets = advanced_item_assignmnet(
+                input_tensor=targets,
+                boolean_mask=positive_indices,
+                value=1,
+                target_elements=tf.convert_to_tensor(
+                    assigned_annotations[:, 4], dtype=tf.float32),
+                elements_axis=1)
 
             alpha_factor = tf.ones_like(targets) * self.alpha
             alpha_factor = tf.where(tf.math.equal(targets, 1.), alpha_factor, 1. - alpha_factor)
@@ -122,7 +126,10 @@ class FocalLoss:
             bce = -(targets * tf.math.log(class_result) + (1.0 - targets) * tf.math.log(1.0 - class_result))
 
             cls_loss = focal_weight * bce
-            cls_loss = tf.where(tf.math.not_equal(targets, -1.0), cls_loss, tf.zeros_like(cls_loss))
+            cls_loss = tf.where(
+                tf.math.not_equal(targets, -1.0), 
+                cls_loss, 
+                tf.zeros_like(cls_loss))
             cls_loss_list.append(
                 tf.math.reduce_sum(cls_loss) / tf.keras.backend.clip(
                     x=tf.cast(num_positive_anchors, dtype=tf.float32), 

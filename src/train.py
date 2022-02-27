@@ -1,6 +1,8 @@
 # i-Sight Advanced Meta Pseudo Labels Training Loop
 # Thomas Chia
+
 import os
+import logging
 import shutil
 
 import tensorflow as tf
@@ -10,6 +12,9 @@ import src.utils.training_utils as t_utils
 import src.losses.effdet_loss as effdet_loss
 import src.losses.uda_loss as uda_loss
 
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+
 def train_ampl(configs, lb_dataset, ul_dataset):
     """ The training pipeline for AMPL.
     :params configs: Class containing configs.
@@ -17,6 +22,30 @@ def train_ampl(configs, lb_dataset, ul_dataset):
     :params u_dataset (tf.data.Dataset): Unlabeled Dataset
     :returns: Trained model
     """
+    # Deletes the old directory if not continuing training
+    if ((configs.transfer_learning is not True or
+        configs.transfer_learning == "imagenet") and
+        os.path.exists(configs.training_dir)):
+        input("Press Enter to delete the current directory and continue.")
+        shutil.rmtree(configs.training_dir)
+    # Makes the training directory if it does not exist
+    if not os.path.exists(configs.training_dir):
+        os.makedirs(configs.training_dir)
+    # Sets up the logging files module
+    logging.basicConfig(
+        level=logging.DEBUG,
+        filename=os.path.join(configs.training_dir, "training.log"),
+        filemode="w")
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    logging.getLogger().addHandler(console)
+    # Initialize Tensorboard
+    tensorboard_dir = os.path.join(
+        configs.training_dir, "tensorboard")
+    if os.path.exists(tensorboard_dir) == False:
+        os.makedirs(tensorboard_dir)
+    tensorboard_file_writer = tf.summary.create_file_writer(tensorboard_dir)
+    tensorboard_file_writer.set_as_default()
 
     # Define Loss Functions and Training Configs
     if configs.training_type=="obd":
@@ -36,24 +65,7 @@ def train_ampl(configs, lb_dataset, ul_dataset):
         ema_model = efficientdet.model_builder(
             configs,
             name="ema")
-
-    # Deletes the old directory if not continuing training
-    if ((configs.transfer_learning is not True or
-        configs.transfer_learning == "imagenet") and
-        os.path.exists(configs.training_dir)):
-
-        shutil.rmtree(configs.training_dir)
-    # Makes the training directory if it does not exist
-    if not os.path.exists(configs.training_dir):
-        os.makedirs(configs.training_dir)
-
-    # Initialize Tensorboard
-    tensorboard_dir = os.path.join(
-        configs.training_dir, "tensorboard")
-    if os.path.exists(tensorboard_dir) == False:
-        os.makedirs(tensorboard_dir)
-    tensorboard_file_writer = tf.summary.create_file_writer(tensorboard_dir)
-    tensorboard_file_writer.set_as_default()
+        logging.info("Created object detection models.")
 
     # Define the checkpoint directories
     teacher_checkpoint_dir = os.path.join(
@@ -92,7 +104,7 @@ def train_ampl(configs, lb_dataset, ul_dataset):
     # Run training for the specific training type
     if configs.training_type=="obd":
         @tf.function
-        def train_step(images, labels):
+        def train_step(images, labels, step):
             """Trains one step of AMPL.
             :params images (dict): Contains "all", "unlabeled", and "labeled" images
             :params labels: Array of bounding box annotations
@@ -192,13 +204,14 @@ def train_ampl(configs, lb_dataset, ul_dataset):
                     teacher_grad)
             teacher_optimizer.apply_gradients(
                 zip(teacher_grad, teacher_model.trainable_variables))
-            print("Loss", loss)
+            logging.info("Step-{} L-Loss: {} Teacher-Loss: {} TU-L-Loss: {}".format(
+                  step, loss["l"], loss["teacher"], loss["tu_on_l_new"]))
             return loss
 
         # The training loop
         global_step = 0
         for epoch in range(configs.epochs):
-            print("epoch {}".format(epoch))
+            logging.info("Epoch {}".format(epoch))
             for step, (lb_image, lb_label) in enumerate(lb_dataset):
                 # Grab data from unlabeled dataset
                 lb_label = lb_label.numpy()
@@ -211,7 +224,7 @@ def train_ampl(configs, lb_dataset, ul_dataset):
                     }
                 labels = {"l": lb_label}
                 # Run one step of training
-                losses = train_step(images, labels)
+                losses = train_step(images, labels, global_step)
                 t_utils.update_ema_weights(
                     configs,
                     ema_model,

@@ -29,7 +29,7 @@ class UDA:
                 axis = 0)
             # Step 1: Loss for Labeled Values
             loss["l"] = self.loss(labels["l"], logits["l"])#cls_results, reg_results, labels["l"])
-            loss["l"] = loss["l"] / float(self.configs.batch_size)
+            # loss["l"] = loss["l"] / float(self.configs.batch_size)
             # Step 2: Loss for unlabeled values
             labels["u_ori"] = logits["u_ori"]
             loss["u"] = self.consistency_loss(labels["u_ori"], logits["u_aug"])
