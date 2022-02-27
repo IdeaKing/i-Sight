@@ -30,7 +30,7 @@ def model_builder(configs, name):
         name = "EfficientDet-" + \
             str(configs.network_type) + \
             "-" + str(name))
-    model.summary()
+    # model.summary()
     return model
 
 
