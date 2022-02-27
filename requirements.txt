@@ -1,4 +1,7 @@
+# Deep learning training requirements
 tensorflow==2.7.0
 opencv-python
 albumentations
 matplotlib
+
+# Web development backends
