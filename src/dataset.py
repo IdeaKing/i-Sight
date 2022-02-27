@@ -11,11 +11,7 @@ import albumentations as A
 
 # The full tf.data pipline
 class Dataset():
-    def __init__(
-        self, 
-        file_names, 
-        configs,
-        dataset_type):
+    def __init__(self, file_names, configs, dataset_type):
         self.file_names = file_names
         self.configs = configs
         self.image_dims = configs.image_dims
@@ -296,6 +292,7 @@ class Dataset():
             ds = ds.prefetch(
                 buffer_size = tf.data.experimental.AUTOTUNE)
             return ds
+
 
 def get_files(configs):
     """Creates a list of the files."""

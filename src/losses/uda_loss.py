@@ -10,6 +10,37 @@ class UDA:
     def __init__(self, configs):
         self.training_type = configs.training_type
         self.configs = configs
+        if self.training_type == "obd":
+            self.loss = effdet_loss.FocalLoss(configs)
+            self.consistency_loss = tf.keras.losses.KLDivergence()
+
+    def __call__(self, y_true, y_pred):
+        if self.training_type == "obd":
+            labels = y_true #{"l": y_true}
+            masks = {}
+            logits = {}
+            loss = {}
+            # Splits the predictions for labeled, and unlabeled
+            logits["l"], logits["u_ori"], logits["u_aug"] = tf.split(
+                y_pred,
+                [self.configs.batch_size,
+                 self.configs.unlabeled_batch_size,
+                 self.configs.unlabeled_batch_size],
+                axis = 0)
+            # Step 1: Loss for Labeled Values
+            loss["l"] = self.loss(labels["l"], logits["l"])#cls_results, reg_results, labels["l"])
+            loss["l"] = loss["l"] / float(self.configs.batch_size)
+            # Step 2: Loss for unlabeled values
+            labels["u_ori"] = logits["u_ori"]
+            loss["u"] = self.consistency_loss(labels["u_ori"], logits["u_aug"])
+            return logits, labels, masks, loss
+
+"""
+class UDA:
+    # ""UDA Loss Function.""
+    def __init__(self, configs):
+        self.training_type = configs.training_type
+        self.configs = configs
 
         if self.training_type == "obd":
             self.cls_loss = effdet_loss.FocalLoss(
@@ -56,4 +87,4 @@ class UDA:
                             self.configs.unlabeled_batch_size, 
                             dtype = tf.float32)
 
-            return logits, labels, masks, loss
+            return logits, labels, masks, loss"""

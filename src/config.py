@@ -1,6 +1,4 @@
 # Thomas Chia i-Sight Configs
-
-
 import os
 import src.utils.training_utils as t_utils
 
@@ -40,9 +38,12 @@ class Configs():
         self.epochs = 150
         self.total_steps = None # To be updated with dataset
         self.student_total_steps = None
+        # Logging
+        self.tensorboard_log = 10
         self.evaluate = 5 # Evaluates every 5 epochs
         self.max_checkpoints = 5
         self.checkpoint_frequency = 10
+        self.model_frequency = 1
         # MPL
         self.mpl_label_smoothing = 0.15
         self.mpl_optimizer_grad_bound = 1e9

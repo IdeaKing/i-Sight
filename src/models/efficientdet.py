@@ -29,7 +29,7 @@ def model_builder(configs, name):
         outputs = prediction_net,
         name = "EfficientDet-" + \
             str(configs.network_type) + \
-            " " + str(name))
+            "-" + str(name))
     model.summary()
     return model
 

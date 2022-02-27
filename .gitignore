@@ -1,7 +1,10 @@
 # i-Sight training files to ignore
 datasets/data
 training_dir
+training-dir
 testing_dir
+testing-dir
+*.ipynb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
