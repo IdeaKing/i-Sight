@@ -101,6 +101,12 @@ def train_ampl(configs, lb_dataset, ul_dataset):
         ema_checkpoint_dir,
         configs.max_checkpoints)
 
+    logging.info("--- Training Configurations ---")
+    logging.info("Training Steps: {}".format(configs.total_steps))
+    logging.info("Warmup Steps: {}".format(configs.warmup_steps))
+    logging.info("Total Epochs: {}".format(configs.epochs))
+    logging.info("Batch Size: {}".format(configs.batch_size))
+
     # Run training for the specific training type
     if configs.training_type=="obd":
         @tf.function
