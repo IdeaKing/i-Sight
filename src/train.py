@@ -115,98 +115,122 @@ def train_ampl(configs, lb_dataset, ul_dataset):
                 all_logits = teacher_model(
                     images["all"],
                     training=True)
-                if configs.mixed_precision is True:
-                    logits, labels, masks, loss = uda_func(
-                        labels,
-                        tf.cast(all_logits, tf.float32))
-                else:
-                    logits, labels, masks, loss = uda_func(
-                        y_true=labels,
-                        y_pred=all_logits)
-            # Change teacher outputs into pseudo-labels
-            labels["u_aug"] = object_detection_pseudo_labels(
-                logits=logits["u_aug"])
+                logits, labels, masks, loss = uda_func(
+                    y_true=labels,
+                    y_pred=tf.cast(all_logits, tf.float32))
+ 
+            # Only run AMPL after a certain number of steps
+            # This is to prevent the 0-labels problem
+            if step > configs.warmup_steps:
+                # Change teacher outputs into pseudo-labels
+                labels["u_aug"] = object_detection_pseudo_labels(
+                    logits=logits["u_aug"])
+            
+                # Step 2 Run on Tutor
+                with tf.GradientTape() as tu_tape:
+                    logits["tu_on_u_aug_and_l"] = tutor_model(
+                        images["u"],
+                        training=True)
+                    logit_tu_on_u, logit_tu_on_l = tf.split(
+                        logits["tu_on_u_aug_and_l"],
+                        [configs.unlabeled_batch_size,
+                        configs.batch_size],
+                        axis=0)
+                    # Loss between teacher and student
+                    logits["tu_on_u"] = logit_tu_on_u
+                    logits["tu_on_l_old"] = logit_tu_on_l
+                    # print("tutor unlabeled")
+                    loss["tu_on_u"] = loss_func(
+                        y_true=labels["u_aug"],
+                        y_pred=tf.cast(logits["tu_on_u"], tf.float32))
+                    # Loss on labeled data
+                    # print("tutor labeled")
+                    loss["tu_on_l_old"] = loss_func(
+                        y_true=labels["l"],
+                        y_pred=tf.cast(logits["tu_on_l_old"], tf.float32))
+                    if configs.mixed_precision is True:
+                        loss["s_on_u"] = tutor_optimizer.get_scaled_loss(
+                            loss["s_on_u"])
+                try:
+                    # print("Working Tutor on Unlabeled {}".format(loss["tu_on_u"]))
+                    tutor_grad_unlabeled = tu_tape.gradient(
+                        loss["tu_on_u"],
+                        tutor_model.trainable_variables)
+                    tutor_grad_unlabeled, _ = tf.clip_by_global_norm(
+                        tutor_grad_unlabeled, 
+                        configs.mpl_optimizer_grad_bound)
+                    if configs.mixed_precision is True:
+                        student_grad_unlabeled = tutor_optimizer.get_unscaled_gradients(
+                            student_grad_unlabeled)
+                    tutor_optimizer.apply_gradients(
+                        zip(tutor_grad_unlabeled, 
+                        tutor_model.trainable_variables))
+                except:
+                    print("----------- Broken Tutor Gradient. -----------")
+                    print("Tutor on Unlabeled {}".format(loss["tu_on_u"]))
+                    print("Labels on Augmentened {}".format(labels["u_aug"]))
+                    print("shape of labels {}".format(labels["u_aug"].shape))
+                    exit()
 
-            # Step 2 Run on Tutor
-            with tf.GradientTape() as tu_tape:
-                logits["tu_on_u_aug_and_l"] = tutor_model(
-                    images["u"],
-                    training=True)
-                logit_tu_on_u, logit_tu_on_l = tf.split(
-                    logits["tu_on_u_aug_and_l"],
-                    [au_image.shape[0],
-                     lb_image.shape[0]],
-                    axis=0)
-                # Loss between teacher and student
-                logits["tu_on_u"] = logit_tu_on_u
-                logits["tu_on_l_old"] = logit_tu_on_l
-                loss["tu_on_u"] = loss_func(
-                    y_true=labels["u_aug"],
-                    y_pred=logits["tu_on_u"])
-                # Loss on labeled data
-                loss["tu_on_l_old"] = loss_func(
+                # Step 3 Student on labeled values + dot product calculation
+                # print("tutor label new")
+                logits["tu_on_l_new"] = tutor_model(images["l"])
+                loss["tu_on_l_new"] = loss_func(
                     y_true=labels["l"],
-                    y_pred=logits["tu_on_l_old"])
-                if configs.mixed_precision is True:
-                    loss["s_on_u"] = tutor_optimizer.get_scaled_loss(
-                        loss["s_on_u"])
-            tutor_grad_unlabeled = tu_tape.gradient(
-                loss["tu_on_u"],
-                tutor_model.trainable_variables)
-            tutor_grad_unlabeled, _ = tf.clip_by_global_norm(
-                tutor_grad_unlabeled, 
-                configs.mpl_optimizer_grad_bound)
-            if configs.mixed_precision is True:
-                student_grad_unlabeled = tutor_optimizer.get_unscaled_gradients(
-                    student_grad_unlabeled)
-            tutor_optimizer.apply_gradients(
-                zip(tutor_grad_unlabeled, 
-                tutor_model.trainable_variables))
+                    y_pred=tf.cast(logits["tu_on_l_new"], tf.float32)) # / float(configs.unlabeled_batch_size)
+                dot_product = loss["tu_on_l_new"] - loss["tu_on_l_old"]
+                limit = 3.0**(0.5)
+                moving_dot_product = tf.random_uniform_initializer(
+                    minval=-limit, maxval=limit)(shape=dot_product.shape)
+                moving_dot_product = tf.Variable(
+                    initial_value=moving_dot_product,
+                    trainable=False,
+                    dtype = tf.float32)
+                dot_product = dot_product - moving_dot_product
+                dot_product = tf.stop_gradient(dot_product)
 
-            # Step 3 Student on labeled values + dot product calculation
-            logits["tu_on_l_new"] = tutor_model(images["l"])
-            loss["tu_on_l_new"] = loss_func(
-                y_true=labels["l"],
-                y_pred=logits["tu_on_l_new"]) / float(configs.unlabeled_batch_size)
-            dot_product = loss["tu_on_l_new"] - loss["tu_on_l_old"]
-            limit = 3.0**(0.5)
-            moving_dot_product = tf.random_uniform_initializer(
-                minval=-limit, maxval=limit)(shape=dot_product.shape)
-            moving_dot_product = tf.Variable(
-                initial_value=moving_dot_product,
-                trainable=False,
-                dtype = tf.float32)
-            dot_product = dot_product - moving_dot_product
-            dot_product = tf.stop_gradient(dot_product)
-
-            # Step 4: Optimize the teacher on teacher and student performance
-            with te_tape:
-                loss["mpl"] = loss_func(
-                    y_true=labels["u_aug"],
-                    y_pred=logits["u_aug"]) / float(configs.unlabeled_batch_size)
-                uda_weight = configs.uda_weight * tf.math.minimum(
-                        1., tf.cast(configs.total_steps, 
-                            tf.float32) / \
-                        float(configs.uda_steps))
-                loss["teacher"] = tf.reduce_sum(
-                    loss["u"] * uda_weight + \
-                    loss["l"] + \
-                    loss["mpl"] * dot_product)
+                # Step 4: Optimize the teacher on teacher and student performance
+                with te_tape:
+                    loss["mpl"] = loss_func(
+                        y_true=labels["u_aug"],
+                        y_pred=tf.cast(logits["u_aug"], tf.float32)) # / float(configs.unlabeled_batch_size)
+                    uda_weight = configs.uda_weight * tf.math.minimum(
+                            1., tf.cast(configs.total_steps, 
+                                tf.float32) / \
+                            float(configs.uda_steps))
+                    loss["teacher"] = tf.reduce_sum(
+                        loss["u"] * uda_weight + \
+                        loss["l"] + \
+                        loss["mpl"] * dot_product)
+                    if configs.mixed_precision is True:
+                        teacher_loss = teacher_optimizer.get_scaled_loss(
+                            teacher_loss)
+                teacher_grad = te_tape.gradient(
+                    loss["teacher"], teacher_model.trainable_variables)
+                teacher_grad, _ = tf.clip_by_global_norm(
+                    teacher_grad, configs.mpl_optimizer_grad_bound)
                 if configs.mixed_precision is True:
-                    teacher_loss = teacher_optimizer.get_scaled_loss(
-                        teacher_loss)
-            teacher_grad = te_tape.gradient(
-                loss["teacher"], teacher_model.trainable_variables)
-            teacher_grad, _ = tf.clip_by_global_norm(
-                teacher_grad, configs.mpl_optimizer_grad_bound)
-            if configs.mixed_precision is True:
-                teacher_grad = teacher_optimizer.get_unscaled_gradients(
-                    teacher_grad)
-            teacher_optimizer.apply_gradients(
-                zip(teacher_grad, teacher_model.trainable_variables))
-            logging.info("Step-{} L-Loss: {} Teacher-Loss: {} TU-L-Loss: {}".format(
-                  step, loss["l"], loss["teacher"], loss["tu_on_l_new"]))
-            return loss
+                    teacher_grad = teacher_optimizer.get_unscaled_gradients(
+                        teacher_grad)
+                teacher_optimizer.apply_gradients(
+                    zip(teacher_grad, teacher_model.trainable_variables))
+                logging.info("Step-{} L-Loss: {} Teacher-Loss: {} Tutor-L-Loss: {}".format(
+                    step, loss["l"], loss["teacher"], loss["tu_on_l_new"]))
+                return loss
+            else:
+                loss["teacher"] = loss["l"] 
+                teacher_grad = te_tape.gradient(
+                    loss["teacher"], teacher_model.trainable_variables)
+                teacher_grad, _ = tf.clip_by_global_norm(
+                    teacher_grad, configs.mpl_optimizer_grad_bound)
+                if configs.mixed_precision is True:
+                    teacher_grad = teacher_optimizer.get_unscaled_gradients(
+                        teacher_grad)
+                teacher_optimizer.apply_gradients(
+                    zip(teacher_grad, teacher_model.trainable_variables))
+                logging.info("Step-{} Teacher-Loss: {}".format(
+                    step, loss["teacher"]))
+                return loss
 
         # The training loop
         global_step = 0

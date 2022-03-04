@@ -38,6 +38,7 @@ class Configs():
         self.epochs = 150
         self.total_steps = None # To be updated with dataset
         self.student_total_steps = None
+        self.warmup_steps = None
         # Logging
         self.tensorboard_log = 10
         self.evaluate = 5 # Evaluates every 5 epochs
@@ -135,8 +136,8 @@ class Configs():
             self.labels = t_utils.parse_label_file(self.labels_path)
             self.num_classes = len(self.labels)
             # Post processing
-            self.score_threshold = 0.01
-            self.iou_threshold = 0.5
+            self.score_threshold = 0.35
+            self.iou_threshold = 0.01
             # Anchor processng
             self.max_box_num = 200
             self.anchors = 9
@@ -170,6 +171,7 @@ class Configs():
             0.0 * self.total_steps)
         self.tutor_learning_rate_numwait = int(
             0.02 * self.total_steps)
+        self.warmup_steps = self.total_steps / 5
 
     def update_student_training_configs(self, dataset_size):
         """Updates student training configs related to steps."""
