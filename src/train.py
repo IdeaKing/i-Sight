@@ -273,8 +273,9 @@ def train_ampl(configs, lb_dataset, ul_dataset):
                 # Save checkpoints if needed
                 if step % configs.checkpoint_frequency == 0:
                     teacher_checkpoint_manager.save()
-                    tutor_checkpoint_manager.save()
-                    ema_checkpoint_manager.save()
+                    if step > configs.warmup_steps:
+                        tutor_checkpoint_manager.save()
+                        ema_checkpoint_manager.save()
                 # Tensorboard update
                 if step % configs.tensorboard_log == 0:
                     tf.summary.scalar(
@@ -292,8 +293,9 @@ def train_ampl(configs, lb_dataset, ul_dataset):
             if global_step % configs.model_frequency == 0:
                 tf.keras.models.save_model(
                     tutor_model, tutor_exported_dir)
-                tf.keras.models.save_model(
-                    ema_model, ema_exported_dir)
+                if step > configs.warmup_steps:
+                    tf.keras.models.save_model(
+                        ema_model, ema_exported_dir)
 
     elif configs.training_type == "cls":
         None
