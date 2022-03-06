@@ -130,9 +130,9 @@ class Dataset():
         file_name = bytes.decode(file_name, encoding="utf-8")
         image = cv2.imread(file_name)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = cv2.resize(image, self.image_dims)
         image = self.fundus_preprocessing(image)
         image = image/255 # Normalize
+        image = cv2.resize(image, self.image_dims)
         image = np.array(image, np.float32)
         return image
     

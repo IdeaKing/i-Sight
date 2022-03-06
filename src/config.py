@@ -28,14 +28,14 @@ class Configs():
         self.student_labels_dir = "labels_student"
 
         # Dataset
-        self.batch_size = 4 # Keep in multiples of 8 # same as mpl batch size
+        self.batch_size = 8 # Keep in multiples of 8 # same as mpl batch size
         self.unlabeled_batch_size = None # same as uda batch size
         self.buffer_size = 64
         self.shuffle_size = 64
         self.dataset_size = None # Used to compute steps
         # Training
         self.transfer_learning = "imagenet" # Or name of directory
-        self.epochs = 150
+        self.epochs = 10
         self.total_steps = None # To be updated with dataset
         self.student_total_steps = None
         self.warmup_steps = None
@@ -139,7 +139,7 @@ class Configs():
             self.score_threshold = 0.35
             self.iou_threshold = 0.01
             # Anchor processng
-            self.max_box_num = 200
+            self.max_box_num = 100
             self.anchors = 9
             self.ratios = [0.5, 1, 2]
             self.scales = [2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)]

@@ -1,24 +1,19 @@
-# Thomas Chia i-Sight 1/25/2022
-# Code from https://github.com/calmisential/EfficientDet_TensorFlow2
-# Changes:
-#   Configuration file is now passed as an attribute and not directly accessed.
-
 import numpy as np
 
 
 class Anchors:
-    def __init__(self, scales, ratios, configs, levels=5):
-        self.scales = np.array(scales)
-        self.ratios = np.array(ratios)
+    def __init__(self, configs, levels=5):
+        self.scales = np.array(configs.scales)
+        self.ratios = np.array(configs.ratios)
         self.levels = levels
-        self.configs = configs
-        self.num_anchors = self.configs.anchors
-        self.sizes = self.configs.sizes
-        self.strides = self.configs.downsampling_strides
+        self.num_anchors = configs.anchors
+        self.sizes = configs.sizes
+        self.strides = configs.downsampling_strides
 
     def __call__(self, image_size, *args, **kwargs):
         image_size = np.array(image_size)
         image_shapes = [(image_size + s - 1) // s for s in self.strides]
+
         all_anchors = np.zeros((0, 4)).astype(np.float32)
 
         for i in range(self.levels):

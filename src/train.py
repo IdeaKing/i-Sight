@@ -50,7 +50,7 @@ def train_ampl(configs, lb_dataset, ul_dataset):
     # Define Loss Functions and Training Configs
     if configs.training_type=="obd":
         uda_func = uda_loss.UDA(configs=configs)
-        loss_func = effdet_loss.FocalLoss(configs=configs)
+        loss_func = effdet_loss.obdloss(configs=configs) #FocalLoss(configs=configs)
         object_detection_pseudo_labels = t_utils.PseudoLabelObjectDetection(
             configs)
         teacher_optimizer, tutor_optimizer, _ = t_utils.object_detection_optimizer(
@@ -110,18 +110,24 @@ def train_ampl(configs, lb_dataset, ul_dataset):
             :params labels: Array of bounding box annotations
             :returns: A dict of losses.
             """
-            # Step 1: Train on teacher
+            
             with tf.GradientTape() as te_tape:
-                all_logits = teacher_model(
-                    images["all"],
+                logits = teacher_model(
+                    images["l"],
                     training=True)
-                logits, labels, masks, loss = uda_func(
-                    y_true=labels,
-                    y_pred=tf.cast(all_logits, tf.float32))
- 
+                loss = {"l": loss_func(labels["l"], logits)}
             # Only run AMPL after a certain number of steps
             # This is to prevent the 0-labels problem
             if step > configs.warmup_steps:
+            # Step 1: Train on teacher
+                with tf.GradientTape() as te_tape:
+                    all_logits = teacher_model(
+                        images["all"],
+                        training=True)
+                    logits, labels, masks, loss = uda_func(
+                        y_true=labels,
+                        y_pred=tf.cast(all_logits, tf.float32))
+
                 # Change teacher outputs into pseudo-labels
                 labels["u_aug"] = object_detection_pseudo_labels(
                     logits=logits["u_aug"])

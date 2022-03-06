@@ -21,10 +21,12 @@ def main(args):
         dataset_path=args.dataset_path,
         training_dir=args.training_dir)
     # Change Tensorflow to mixed precision if needed
+    """
     if args.mixed_precision == True:
-        configs.mixed_precision == True
+        configs.mixed_precision = True
         tf.keras.mixed_precision.set_global_policy(
             "mixed_float16")
+    """
     # Find the files for the datasets
     labeled_training_files = dataset.load_data(
         configs,
