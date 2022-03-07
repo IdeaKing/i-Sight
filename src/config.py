@@ -28,7 +28,7 @@ class Configs():
         self.student_labels_dir = "labels_student"
 
         # Dataset
-        self.batch_size = 8 # Keep in multiples of 8 # same as mpl batch size
+        self.batch_size = 4 # Keep in multiples of 8 # same as mpl batch size
         self.unlabeled_batch_size = None # same as uda batch size
         self.buffer_size = 64
         self.shuffle_size = 64

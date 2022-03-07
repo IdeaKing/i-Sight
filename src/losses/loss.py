@@ -39,7 +39,8 @@ class PseudoLabelObjectDetection():
         final_out = np.zeros(
             (self.configs.unlabeled_batch_size, 
              self.configs.max_box_num, 
-             5))
+             5),
+             dtype=np.float32)
         for i, logit in enumerate(logits):
             reg_results, cls_results = logit[..., :4], logit[..., 4:]
             reg_results = np.expand_dims(reg_results, axis=0)
@@ -60,7 +61,7 @@ class PseudoLabelObjectDetection():
             for pad in range(num_of_pads):
                 merged_output.append([0, 0, 0, 0, -1])
             final_out[i] = np.array(merged_output)
-        return tf.constant(final_out, dtype=tf.float32)
+        return final_out
 
 
 class FocalLoss:
@@ -189,6 +190,6 @@ class UDA:
         # Step 1: Loss for Labeled Values
         loss["l"] = self.loss(labels["l"], logits["l"])
         # Step 2: Loss for unlabeled values
-        labels["u_ori"] = self.convert_to_labels(logits["u_ori"])
+        labels["u_ori"] = logits["u_ori"] #self.convert_to_labels(logits["u_ori"])
         loss["u"] = self.consistency_loss(labels["u_ori"], logits["u_aug"])
         return logits, labels, masks, loss

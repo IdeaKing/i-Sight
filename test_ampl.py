@@ -9,7 +9,7 @@ from src.utils.training_utils import learning_rate, update_ema_weights
 
 tf.config.run_functions_eagerly(True)
 
-LOAD_FROM_CHECKPOINT = False
+LOAD_FROM_CHECKPOINT = True
 
 if __name__ == "__main__":
     # Prepare the configs
@@ -118,13 +118,6 @@ if __name__ == "__main__":
         :params labels: Array of bounding box annotations
         :returns: A dict of losses.
         """
-        
-        with tf.GradientTape() as te_tape:
-            logits = teacher_model(
-                images["l"],
-                training=True)
-            loss = {"l": loss_func(labels["l"], logits)}
-
         # Only run AMPL after a certain number of steps
         # This is to prevent the 0-labels problem
         if step > configs.warmup_steps:
@@ -185,7 +178,6 @@ if __name__ == "__main__":
                 exit()
 
             # Step 3 Student on labeled values + dot product calculation
-            # print("tutor label new")
             logits["tu_on_l_new"] = tutor_model(images["l"])
             loss["tu_on_l_new"] = loss_func(
                 y_true=labels["l"],
@@ -234,6 +226,12 @@ if __name__ == "__main__":
                     "mpl-loss/tutor-on-u": loss["tu_on_u"],
                     "mpl-loss/tutor-on-l": loss["tu_on_l_new"]}
         else:
+            with tf.GradientTape() as te_tape:
+                logits = teacher_model(
+                    images["l"],
+                    training=True)
+                loss = {"l": loss_func(labels["l"], logits)}
+
             loss["teacher"] = loss["l"] 
             teacher_grad = te_tape.gradient(
                 loss["teacher"], teacher_model.trainable_variables)
@@ -244,7 +242,6 @@ if __name__ == "__main__":
                     teacher_grad)
             teacher_optimizer.apply_gradients(
                 zip(teacher_grad, teacher_model.trainable_variables))
-            print(loss)
             return {"mpl/dot-product": 0,
                     "mpl/moving-dot-product": 0,
                     "mpl-loss/teacher-on-l": loss["teacher"],
@@ -256,13 +253,13 @@ if __name__ == "__main__":
         print("Epoch: {}/{}".format(epoch, configs.epochs))
         for step, (lb_image, lb_label) in enumerate(labeled_data):
             # Grab data from unlabeled dataset
-            lb_label = lb_label.numpy()
             or_image, au_image = next(iter(unlabeled_data))
             # Group the data into dicts for easy access during training
             images = {"all": tf.concat([lb_image, or_image, au_image], axis=0),
                       "u": tf.concat([au_image, lb_image], axis=0),
                       "l": lb_image}
-            labels = {"l": lb_label}
+            labels = {"l": lb_label.numpy()}
+            # Run a training step
             losses = train_step(images, labels, global_steps)
 
             update_ema_weights(
@@ -287,8 +284,9 @@ if __name__ == "__main__":
                 if step > configs.warmup_steps:
                     tutor_checkpoint_manager.save()
                     ema_checkpoint_manager.save()
+
         for key, metric in metrics.items():
-            metric.reset()
+            metric.reset_state()
 
         tf.keras.models.save_model(
             tutor_model, 
