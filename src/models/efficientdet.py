@@ -6,6 +6,36 @@ from src.models.bifpn import BiFPN
 from src.models.prediction_net import BoxClassPredict
 
 
+class EfficientDet(tf.keras.Model):
+    def __init__(self, configs):
+        super(EfficientDet, self).__init__()
+        self.configs = configs
+        self.backbone = EfficientNet(
+            width_coefficient = configs.width_coefficient,
+            depth_coefficient = configs.depth_coefficient,
+            dropout_rate = configs.dropout_rate)
+        self.bifpn = BiFPN(
+            output_channels = configs.w_bifpn,
+            layers = configs.d_bifpn)
+        self.prediction_net = BoxClassPredict(
+            filters = configs.w_bifpn,
+            depth = configs.d_class,
+            num_classes = configs.num_classes,
+            num_anchors = configs.anchors)
+
+    def call(self, inputs, training=None, mask=None):
+        """
+        :param inputs: 4-D tensor, shape: (N, H, W, C)
+        :param training:
+        :param mask:
+        :return: x: tuple, (box_preds, class_preds)
+        """
+        x = self.backbone(inputs, training=training)
+        x = self.bifpn(x, training=training)
+        x = self.prediction_net(x, training=training)
+        return x
+
+
 def model_builder(configs, name):
     """Creates the EfficienDet model."""
     model_input = tf.keras.layers.Input(

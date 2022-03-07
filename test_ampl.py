@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 from src.config import Configs
-from src.models.efficientdet import model_builder
+from src.models.efficientdet import model_builder, EfficientDet
 from src.dataset import Dataset, load_data
 from src.losses.loss import effdet_loss, PseudoLabelObjectDetection, UDA
 from src.utils.training_utils import learning_rate, update_ema_weights
@@ -45,12 +45,9 @@ if __name__ == "__main__":
         break
 
     # Build the models
-    teacher_model = model_builder(
-        configs, "teacher")
-    tutor_model = model_builder(
-        configs, "tutor")
-    ema_model = model_builder(
-        configs, "ema")
+    teacher_model = model_builder(configs, "teacher")
+    tutor_model = model_builder(configs, "tutor")
+    ema_model = model_builder(configs, "ema")
     
     # Optimizers and losses
     loss_func = effdet_loss(configs)
@@ -201,7 +198,7 @@ if __name__ == "__main__":
                     teacher_grad)
             teacher_optimizer.apply_gradients(
                 zip(teacher_grad, teacher_model.trainable_variables))
-            
+            print(loss)
             return {"mpl/dot-product": 0,
                     "mpl/moving-dot-product": 0,
                     "mpl-loss/teacher-on-l": loss["teacher"],
@@ -240,11 +237,11 @@ if __name__ == "__main__":
             labels = {"l": lb_label}
             losses = train_step(images, labels, step)
 
-            update_ema_weights(
+            '''update_ema_weights(
                 configs,
                 ema_model,
                 tutor_model,
-                step)
+                step)'''
 
             for key, metric in metrics.items():
                 metric(losses[key])
@@ -263,4 +260,3 @@ if __name__ == "__main__":
         tf.keras.models.save_model(
             ema_model, 
             configs.training_dir + "/ema")
-

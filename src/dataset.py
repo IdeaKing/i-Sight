@@ -101,10 +101,10 @@ class Dataset():
                     "xmax")[0].childNodes[0].data
                 ymax = box.getElementsByTagName(
                     "ymax")[0].childNodes[0].data
-                x_min = int(int(xmin)) #*image_width/self.configs.image_dims[0])
-                y_min = int(int(ymin)) #*image_height/self.configs.image_dims[1])
-                x_max = int(int(xmax)) #*image_width/self.configs.image_dims[0])
-                y_max = int(int(ymax)) #*image_height/self.configs.image_dims[1])
+                x_min = int((int(xmin) / image_width) * self.configs.image_dims[0])
+                y_min = int((int(ymin) / image_height) * self.configs.image_dims[1])
+                x_max = int((int(xmax) / image_width) * self.configs.image_dims[0])
+                y_max = int((int(ymax) / image_height) * self.configs.image_dims[1])
                 o_list.append(x_min)
                 o_list.append(y_min)
                 o_list.append(x_max)
