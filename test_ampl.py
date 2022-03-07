@@ -1,3 +1,4 @@
+import os
 import tensorflow as tf
 
 from src.config import Configs
@@ -8,6 +9,7 @@ from src.utils.training_utils import learning_rate, update_ema_weights
 
 tf.config.run_functions_eagerly(True)
 
+LOAD_FROM_CHECKPOINT = False
 
 if __name__ == "__main__":
     # Prepare the configs
@@ -53,9 +55,53 @@ if __name__ == "__main__":
     loss_func = effdet_loss(configs)
     uda_loss_func = UDA(configs)
     psuedo_label_func = PseudoLabelObjectDetection(configs)
+    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate=1e-4,
+        decay_steps=configs.total_steps,
+        decay_rate=0.96)
+    teacher_optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
+    tutor_optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
 
-    teacher_optimizer = tf.keras.optimizers.Adam()
-    tutor_optimizer = tf.keras.optimizers.Adam()
+    # Define the checkpoint directories
+    teacher_checkpoint_dir = os.path.join(
+        configs.training_dir, "teacher")
+    tutor_checkpoint_dir = os.path.join(
+        configs.training_dir, "tutor")
+    ema_checkpoint_dir = os.path.join(
+        configs.training_dir, "ema")
+    # Define the full model directories
+    tutor_exported_dir = os.path.join(
+        configs.training_dir, "tutor-exported")
+    ema_exported_dir = os.path.join(
+        configs.training_dir, "ema-exported")
+    # Checkpoints
+    teacher_checkpoint = tf.train.Checkpoint(
+        optimizer=teacher_optimizer,
+        model=teacher_model)
+    teacher_checkpoint_manager = tf.train.CheckpointManager(
+        teacher_checkpoint,
+        teacher_checkpoint_dir,
+        configs.max_checkpoints)
+    tutor_checkpoint = tf.train.Checkpoint(
+        optimizer=tutor_optimizer,
+        model=tutor_model)
+    tutor_checkpoint_manager = tf.train.CheckpointManager(
+        tutor_checkpoint,
+        tutor_checkpoint_dir,
+        configs.max_checkpoints)
+    ema_checkpoint = tf.train.Checkpoint(
+        model=ema_model)
+    ema_checkpoint_manager = tf.train.CheckpointManager(
+        ema_checkpoint,
+        ema_checkpoint_dir,
+        configs.max_checkpoints)
+
+    global_steps = 0
+
+    if LOAD_FROM_CHECKPOINT:
+        teacher_checkpoint.restore(
+            teacher_checkpoint_manager.latest_checkpoint).expect_partial()
+        global_steps = configs.warmup_steps
 
     # Metrics
     metrics = {"mpl/dot-product": tf.keras.metrics.Mean(),
@@ -206,54 +252,44 @@ if __name__ == "__main__":
                     "mpl-loss/tutor-on-u": 0,
                     "mpl-loss/tutor-on-l": 0}
 
-    global_steps = 0
     for epoch in range(configs.epochs):
         print("Epoch: {}/{}".format(epoch, configs.epochs))
         for step, (lb_image, lb_label) in enumerate(labeled_data):
             # Grab data from unlabeled dataset
             lb_label = lb_label.numpy()
             or_image, au_image = next(iter(unlabeled_data))
-            
-            # Update the learning rates
-            tutor_optimizer.learning_rate.assign(
-                learning_rate(
-                    global_steps,
-                    configs.student_learning_rate,
-                    configs.total_steps,
-                    configs.tutor_learning_rate_warmup,
-                    configs.tutor_learning_rate_numwait))
-            teacher_optimizer.learning_rate.assign(
-                learning_rate(
-                    global_steps,
-                    configs.teacher_learning_rate,
-                    configs.total_steps,
-                    configs.teacher_learning_rate_warmup,
-                    configs.teacher_learning_rate_numwait))
-
             # Group the data into dicts for easy access during training
             images = {"all": tf.concat([lb_image, or_image, au_image], axis=0),
                       "u": tf.concat([au_image, lb_image], axis=0),
                       "l": lb_image}
             labels = {"l": lb_label}
-            losses = train_step(images, labels, step)
+            losses = train_step(images, labels, global_steps)
 
-            '''update_ema_weights(
+            update_ema_weights(
                 configs,
                 ema_model,
                 tutor_model,
-                step)'''
+                global_steps)
 
             for key, metric in metrics.items():
                 metric(losses[key])
             
             print("Epoch: {}/{} Step: {}/{} Teacher-L: {} Tutor-l {}".format(
-                epoch, configs.epochs, global_steps, 
+                epoch, configs.epochs, step, 
                 int(configs.total_steps/configs.epochs), 
                 metrics["mpl-loss/teacher-on-l"].result(),
                 metrics["mpl-loss/tutor-on-l"].result()))
             
             global_steps = global_steps + 1
-        
+            # Save checkpoints if needed
+            if step % configs.checkpoint_frequency == 0:
+                teacher_checkpoint_manager.save()
+                if step > configs.warmup_steps:
+                    tutor_checkpoint_manager.save()
+                    ema_checkpoint_manager.save()
+        for key, metric in metrics.items():
+            metric.reset()
+
         tf.keras.models.save_model(
             tutor_model, 
             configs.training_dir + "/tutor")

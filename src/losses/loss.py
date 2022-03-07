@@ -171,7 +171,7 @@ class UDA:
         self.training_type = configs.training_type
         self.configs = configs
         self.convert_to_labels = PseudoLabelObjectDetection(configs)
-        self.loss = FocalLoss(configs)
+        self.loss = effdet_loss(configs)
         self.consistency_loss = tf.keras.losses.KLDivergence()
 
     def __call__(self, y_true, y_pred):

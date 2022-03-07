@@ -41,7 +41,7 @@ if __name__ == "__main__":
     loss_func = effdet_loss(configs=configs)
     lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
         initial_learning_rate=1e-4,
-        decay_steps=STEPS_PER_EPOCH * 2,
+        decay_steps=TOTAL_STEPS,
         decay_rate=0.96)
     optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
 
