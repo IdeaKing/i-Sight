@@ -7,6 +7,8 @@ from src.losses.iou import IOU
 from src.utils.tools import item_assignment, advanced_item_assignmnet
 from src.utils.nms import NMS
 
+import tensorflow_addons as tfa
+
 
 def effdet_loss(configs):
     anchors = Anchors(configs=configs)(image_size=configs.image_dims)
@@ -64,7 +66,59 @@ class PseudoLabelObjectDetection():
         return final_out
 
 
-class FocalLoss:
+class FocalLoss(tf.keras.losses.Loss):
+    def __init__(self, alpha: float = 0.25, gamma: float = 1.5) -> None:
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.loss_fn = tfa.losses.SigmoidFocalCrossEntropy(
+            alpha=self.alpha, gamma=self.gamma,
+            reduction=tf.losses.Reduction.SUM)
+        
+    def call(self, y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
+        anchors_states = y_true[:, :, -1]
+        labels = y_true[:, :, :-1]
+
+        not_ignore_idx = tf.where(tf.not_equal(anchors_states, -1.))
+        true_idx = tf.where(tf.equal(anchors_states, 1.))
+
+        normalizer = tf.shape(true_idx)[0]
+        normalizer = tf.cast(normalizer, tf.float32)
+        normalizer = tf.maximum(tf.constant(1., dtype=tf.float32), normalizer)
+
+        y_true = tf.gather_nd(labels, not_ignore_idx)
+        y_pred = tf.gather_nd(y_pred, not_ignore_idx)
+
+        return tf.divide(self.loss_fn(y_true, y_pred), normalizer)
+
+
+class HuberLoss(tf.keras.losses.Loss):
+    def __init__(self, delta: float = 1.) -> None:
+        super(HuberLoss, self).__init__()
+        self.delta = delta
+
+        self.loss_fn = tf.losses.Huber(
+            reduction=tf.losses.Reduction.SUM, 
+            delta=self.delta)
+
+    def call(self, y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
+        anchors_states = y_true[:, :, -1]
+        labels = y_true[:, :, :-1]
+
+        true_idx = tf.where(tf.equal(anchors_states, 1.))
+
+        normalizer = tf.shape(true_idx)[0]
+        normalizer = tf.cast(normalizer, tf.float32)
+        normalizer = tf.maximum(tf.constant(1., dtype=tf.float32), normalizer)
+        normalizer = tf.multiply(normalizer, tf.constant(4., dtype=tf.float32))
+
+        y_true = tf.gather_nd(labels, true_idx)
+        y_pred = tf.gather_nd(y_pred, true_idx)
+
+        return 50. * tf.divide(self.loss_fn(y_true, y_pred), normalizer)
+
+
+class FocalLossOld:
     def __init__(self, configs):
         self.alpha = configs.alpha
         self.gamma = configs.gamma

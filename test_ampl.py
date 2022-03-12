@@ -271,7 +271,7 @@ if __name__ == "__main__":
             for key, metric in metrics.items():
                 metric(losses[key])
             
-            print("Epoch: {}/{} Step: {}/{} Teacher-L: {} Tutor-l {}".format(
+            print("Epoch: {}/{} Step: {}/{} Teacher-l: {} Tutor-l: {}".format(
                 epoch, configs.epochs, step, 
                 int(configs.total_steps/configs.epochs), 
                 metrics["mpl-loss/teacher-on-l"].result(),
