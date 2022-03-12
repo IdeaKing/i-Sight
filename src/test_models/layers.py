@@ -2,8 +2,8 @@ from typing import Any, Tuple, Sequence
 
 import tensorflow as tf
 
-from efficientdet.config import AnchorsConfig
-from efficientdet.utils import bndbox, anchors
+from src.test_models.efficientdet import AnchorsConfig
+from src.utils import bndbox, anchors
 
 
 class Resize(tf.keras.layers.Layer):

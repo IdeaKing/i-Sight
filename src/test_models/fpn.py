@@ -2,7 +2,7 @@ from typing import Sequence
 
 import tensorflow as tf
 
-from . import layers
+from src.test_models import layers
 
 
 class Merge(tf.keras.layers.Layer):

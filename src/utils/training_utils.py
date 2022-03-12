@@ -5,10 +5,6 @@ import os
 import numpy as np
 import tensorflow as tf
 
-import src.models.efficientdet as efficientdet
-import src.losses.anchor as anchor
-import src.utils.nms as NMS
-
 
 def object_detection_optimizer(configs):
     teacher_optimizer=tf.keras.optimizers.Adam(
@@ -19,50 +15,6 @@ def object_detection_optimizer(configs):
         learning_rate=configs.student_learning_rate)
 
     return teacher_optimizer, tutor_optimizer, student_optimizer
-
-
-class PseudoLabelObjectDetection():
-    """Change the logits into labels for object detection.
-    :params configs: Configuration class
-    :params logits: The outputs from the model
-    :returns: Pseudo-labels for object detection models
-    """
-    def __init__(self, configs):
-        self.configs = configs
-        self.anchors = anchor.Anchors(
-            scales=configs.scales, 
-            ratios=configs.ratios,
-            configs=configs)(image_size=configs.image_dims)
-        self.nms = NMS.NMS(configs=configs)
-        self.box_transform = efficientdet.BoxTransform()
-        self.clip_boxes = efficientdet.ClipBoxes(configs)
-    
-    def __call__(self, logits):
-        final_out = np.zeros(
-            (self.configs.unlabeled_batch_size, 
-             self.configs.max_box_num, 
-             5))
-        for i, logit in enumerate(logits):
-            reg_results, cls_results = logit[..., :4], logit[..., 4:]
-            reg_results = np.expand_dims(reg_results, axis=0)
-            cls_results = np.expand_dims(cls_results, axis=0)
-            transformed_anchors = self.box_transform(self.anchors, reg_results)
-            transformed_anchors = self.clip_boxes(transformed_anchors)
-            scores = tf.math.reduce_max(cls_results, axis=2).numpy()
-            classes = tf.math.argmax(cls_results, axis=2).numpy()
-            final_boxes, final_scores, final_classes = self.nms(
-                boxes=transformed_anchors[0, :, :],
-                box_scores=np.squeeze(scores),
-                box_classes=np.squeeze(classes))
-            merged_output = np.concatenate(
-                [final_boxes.numpy(), np.expand_dims(final_classes.numpy(),axis=-1)],
-                axis=1).tolist()
-            num_of_pads = int(self.configs.max_box_num) - int(len(merged_output))
-            
-            for pad in range(num_of_pads):
-                merged_output.append([0, 0, 0, 0, -1])
-            final_out[i] = np.array(merged_output)
-        return tf.constant(final_out, dtype=tf.float32)
 
 
 def save_labels_to_xml(configs, labels, path):
@@ -241,30 +193,3 @@ def update_tensorboard(losses, step):
         tf.summary.scalar(
             key, data=value, step=step)
     tf.summary.flush()
-
-
-''' OLD FUNC TO BE DELETED
-def object_detection_logits_into_labels(configs, logits):
-    """Change the logits into labels for object detection."""
-    anchors = anchor.Anchors(
-        scales=configs.scales, 
-        ratios=configs.ratios,
-        configs=configs)(image_size=configs.image_dims)
-    nms = NMS.NMS(configs = configs)
-    box_transform = efficientdet.BoxTransform()
-    clip_boxes = efficientdet.ClipBoxes(configs)
-
-    reg_results, cls_results = logits[..., :4], logits[..., 4:]
-    transformed_anchors = box_transform(anchors, reg_results)
-    transformed_anchors = clip_boxes(transformed_anchors)
-    scores = tf.math.reduce_max(cls_results, axis=2).numpy()
-    classes = tf.math.argmax(cls_results, axis=2).numpy()
-    final_boxes, final_scores, final_classes = nms(
-        boxes=transformed_anchors[0, :, :],
-        box_scores=np.squeeze(scores),
-        box_classes=np.squeeze(classes))
-    merged_output = np.concatenate(
-        [final_boxes.numpy(), final_classes.numpy()],
-        axis = -1)
-    return merged_output, final_scores.numpy() 
-'''

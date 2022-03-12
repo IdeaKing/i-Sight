@@ -1,4 +1,3 @@
-import functools
 from typing import Tuple
 
 import tensorflow as tf
@@ -8,17 +7,18 @@ from src.utils import anchors as anchors_utils
 import numpy as np
 
 
-def _compute_gt(configs, 
+def _compute_gt(images, 
                 annots, 
-                anchors: tf.Tensor):
+                anchors, 
+                num_classes):
 
     labels = annots[0]
     boxes = annots[1]
 
     target_reg, target_clf = anchors_utils.anchor_targets_bbox(
-            anchors, configs, boxes, labels, configs.num_classes)
+            anchors, images, boxes, labels, num_classes)
 
-    return np.concatenate([target_reg, target_clf], axis=-1)
+    return target_reg, target_clf
 
 
 

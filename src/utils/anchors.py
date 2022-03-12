@@ -1,30 +1,12 @@
-"""
-Copyright 2017-2018 Fizyr (https://fizyr.com)
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-    http://www.apache.org/licenses/LICENSE-2.0
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-"""
-
-from typing import Any, Tuple, Sequence
-
-import numpy as np
 import tensorflow as tf
-
-from src.utils import bndbox
-
+import numpy as np
 
 class AnchorGenerator(object):
     
     def __init__(self, 
-                 size: float,
-                 aspect_ratios: Sequence[float],
-                 stride: int = 1) -> None:
+                 size,
+                 aspect_ratios,
+                 stride):
         """
         RetinaNet input examples:
             size: 32
@@ -41,11 +23,11 @@ class AnchorGenerator(object):
 
         self.anchors = self._generate()
     
-    def __call__(self, *args: Any, **kwargs: Any) -> tf.Tensor:
+    def __call__(self, *args, **kwargs) -> tf.Tensor:
         return self.tile_anchors_over_feature_map(*args, **kwargs)
 
     def tile_anchors_over_feature_map(
-            self, feature_map_shape: Tuple[int, int]) -> tf.Tensor:
+            self, feature_map_shape) -> tf.Tensor:
         """
         Tile anchors over all feature map positions
         Parameters
@@ -114,7 +96,7 @@ class AnchorGenerator(object):
     def __len__(self) -> int:
         return len(self.aspect_ratios) * len(self.anchor_scales)
 
-"""
+
 @tf.function(
     input_signature=[tf.TensorSpec(shape=[None, 4], dtype=tf.float32),
                      tf.TensorSpec(shape=[None, None, None, 3], dtype=tf.float32),
@@ -122,12 +104,12 @@ class AnchorGenerator(object):
                      tf.TensorSpec(shape=[None, None], dtype=tf.int32),
                      tf.TensorSpec(shape=None, dtype=tf.int32),
                      tf.TensorSpec(shape=None, dtype=tf.float32),
-                     tf.TensorSpec(shape=None, dtype=tf.float32)])"""
+                     tf.TensorSpec(shape=None, dtype=tf.float32)])
 def anchor_targets_bbox(anchors: tf.Tensor,
-                        configs,
+                        images: tf.Tensor,
                         bndboxes: tf.Tensor,
                         labels: tf.Tensor,
-                        num_classes,
+                        num_classes: int,
                         negative_overlap: float = 0.4,
                         positive_overlap: float = 0.5):
     """ 
@@ -168,7 +150,7 @@ def anchor_targets_bbox(anchors: tf.Tensor,
             define regression targets for (x1, y1, x2, y2) and the
             last column defines anchor states (-1 for ignore, 0 for bg, 1 for fg).
     """
-    im_shape = (configs.batch_size, configs.image_dims[0], configs.image_dims[1], 3) #tf.shape(images)
+    im_shape = tf.shape(images)
     batch_size = im_shape[0]
     h = tf.cast(im_shape[1], tf.float32)
     w = tf.cast(im_shape[2], tf.float32) 
@@ -228,9 +210,7 @@ def anchor_targets_bbox(anchors: tf.Tensor,
 def compute_gt_annotations(anchors: tf.Tensor,
                            annotations: tf.Tensor,
                            negative_overlap: float = 0.4,
-                           positive_overlap: float = 0.5) -> Tuple[tf.Tensor,
-                                                                   tf.Tensor,
-                                                                   tf.Tensor]:
+                           positive_overlap: float = 0.5):
     """ 
     Obtain indices of gt annotations with the greatest overlap.
     
@@ -263,7 +243,7 @@ def compute_gt_annotations(anchors: tf.Tensor,
     annotations = tf.cast(annotations, tf.float32)
 
     # Compute the ious between boxes, and get the argmax indices and max values
-    overlaps = bndbox.bbox_overlap(anchors, annotations)
+    overlaps = bbox_overlap(anchors, annotations)
     argmax_overlaps_inds = tf.argmax(overlaps, axis=-1, output_type=tf.int32)
     max_overlaps = tf.reduce_max(overlaps, axis=-1)
     
@@ -311,3 +291,56 @@ def bbox_transform(anchors: tf.Tensor, gt_boxes: tf.Tensor) -> tf.Tensor:
     targets = tf.stack([tx, ty, tw, th], axis=-1)
     
     return targets
+
+
+def bbox_overlap(boxes: tf.Tensor, gt_boxes: tf.Tensor) -> tf.Tensor:
+    """
+    Calculates the overlap between proposal and ground truth boxes.
+    Some `gt_boxes` may have been padded. The returned `iou` tensor for these
+    boxes will be -1.
+    
+    Parameters
+    ----------
+    boxes: tf.Tensor with a shape of [batch_size, N, 4]. 
+        N is the number of proposals before groundtruth assignment. The
+        last dimension is the pixel coordinates in [xmin, ymin, xmax, ymax] form.
+    gt_boxes: tf.Tensor with a shape of [batch_size, MAX_NUM_INSTANCES, 4]. 
+        This tensor might have paddings with a negative value.
+    
+    Returns
+    -------
+    tf.FloatTensor 
+        A tensor with as a shape of [batch_size, N, MAX_NUM_INSTANCES].
+    """
+    bb_x_min, bb_y_min, bb_x_max, bb_y_max = tf.split(
+        value=boxes, num_or_size_splits=4, axis=2)
+    gt_x_min, gt_y_min, gt_x_max, gt_y_max = tf.split(
+        value=gt_boxes, num_or_size_splits=4, axis=2)
+
+    # Calculates the intersection area.
+    i_xmin = tf.math.maximum(bb_x_min, tf.transpose(gt_x_min, [0, 2, 1]))
+    i_xmax = tf.math.minimum(bb_x_max, tf.transpose(gt_x_max, [0, 2, 1]))
+    i_ymin = tf.math.maximum(bb_y_min, tf.transpose(gt_y_min, [0, 2, 1]))
+    i_ymax = tf.math.minimum(bb_y_max, tf.transpose(gt_y_max, [0, 2, 1]))
+    i_area = (tf.math.maximum(i_xmax - i_xmin, 0) * 
+              tf.math.maximum(i_ymax - i_ymin, 0))
+
+    # Calculates the union area.
+    bb_area = (bb_y_max - bb_y_min) * (bb_x_max - bb_x_min)
+    gt_area = (gt_y_max - gt_y_min) * (gt_x_max - gt_x_min)
+    
+    # Adds a small epsilon to avoid divide-by-zero.
+    u_area = bb_area + tf.transpose(gt_area, [0, 2, 1]) - i_area + 1e-8
+
+    # Calculates IoU.
+    iou = i_area / u_area
+
+    # Fills -1 for IoU entries between the padded ground truth boxes.
+    gt_invalid_mask = tf.less(
+        tf.reduce_max(gt_boxes, axis=-1, keepdims=True), 0.0)
+    padding_mask = tf.logical_or(
+        tf.zeros_like(bb_x_min, dtype=tf.bool),
+        tf.transpose(gt_invalid_mask, [0, 2, 1]))
+    iou = tf.where(padding_mask, -tf.ones_like(iou), iou)
+
+    return iou

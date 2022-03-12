@@ -2,8 +2,23 @@ import math
 
 import tensorflow as tf
 
-from . import layers
-from efficientdet.utils import tf_utils
+from src.test_models import layers
+
+
+def call_cascade(layers, 
+                 inp, training: bool = True):
+    """
+    Calls a set of layers using the output as cascade.
+    The equivalent python code would be
+        x = inp
+        for l in layers:
+            x = l(x, **kwargs)
+        return x
+    """
+    x = inp
+    for l in layers:
+        x = l(x, training=training)
+    return x
 
 
 class RetinaNetBBPredictor(tf.keras.Model):
@@ -40,7 +55,7 @@ class RetinaNetBBPredictor(tf.keras.Model):
     def call(self, features: tf.Tensor, training: bool = True) -> tf.Tensor:
         batch_size = tf.shape(features)[0]
 
-        x = tf_utils.call_cascade(
+        x = call_cascade(
             self.feature_extractors, features, training=training)
         return tf.reshape(self.bb_regressor(x), [batch_size, -1, 4])
 
@@ -87,7 +102,7 @@ class RetinaNetClassifier(tf.keras.Model):
     def call(self, features: tf.Tensor, training: bool = True) -> tf.Tensor:
         batch_size = tf.shape(features)[0]
 
-        x = tf_utils.call_cascade(
+        x = call_cascade(
             self.feature_extractors, features, training=training)
         return tf.reshape(self.cls_score(x), [batch_size, -1, self.num_classes])
 

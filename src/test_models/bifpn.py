@@ -3,7 +3,7 @@ from typing import List
 import tensorflow as tf
 
 from . import layers
-from efficientdet.utils import tf_utils
+from src.test_models.head import call_cascade
 
 
 EPSILON = 1e-5
@@ -161,7 +161,7 @@ class BiFPN(tf.keras.Model):
 
         features = [P3, P4, P5, P6, P7]
         
-        features = tf_utils.call_cascade(self.blocks, 
+        features = call_cascade(self.blocks, 
                                          features, 
                                          training=training)
         return features

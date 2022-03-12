@@ -3,22 +3,79 @@ from pathlib import Path
 from typing import Any, Union, Tuple, Sequence, Optional
 
 import tensorflow as tf
+from src import test_models as models
 
-import efficientdet.config as config
 
-from efficientdet import models
+import math
+import typing
+
+
+# D7 the same as D6, therefore we repeat the 6 PHI
+PHIs = list(range(0, 7)) + [6]
+
+
+class AnchorsConfig(typing.NamedTuple):
+    sizes: typing.Sequence[int] = (32, 64, 128, 256, 512)
+    strides: typing.Sequence[int] = (8, 16, 32, 64, 128)
+    ratios: typing.Sequence[float] = (1, 2, .5)
+    scales: typing.Sequence[float] = (2 ** 0, 2 ** (1 / 3.0), 2 ** (2 / 3.0))
+
+class EfficientDetBaseConfig(typing.NamedTuple):
+    # Input scaling
+    input_size: int = 512
+    # Backbone scaling
+    backbone: int = 0
+    # BiFPN scaling
+    Wbifpn: int = 64
+    Dbifpn: int = 3
+    # Box predictor head scaling
+    Dclass: int = 3
+
+    def print_table(self, min_D: int = 0, max_D: int = 7) -> None:
+        for i in range(min_D, max_D + 1):
+            EfficientDetCompudScaling(D=i).print_conf()
+
+
+class EfficientDetCompudScaling(object):
+    def __init__(self, 
+                 config : EfficientDetBaseConfig = EfficientDetBaseConfig(), 
+                 D : int = 0):
+        assert D >= 0 and D <= 7, 'D must be between [0, 7]'
+        self.D = D
+        self.base_conf = config
+    
+    @property
+    def input_size(self) -> typing.Tuple[int, int]:
+        if self.D == 7:
+            size = 1536
+        else:
+            size = self.base_conf.input_size + PHIs[self.D] * 128
+        return size, size
+    
+    @property
+    def Wbifpn(self) -> int:
+        return int(self.base_conf.Wbifpn * 1.35 ** PHIs[self.D])
+    
+    @property
+    def Dbifpn(self) -> int:
+        return self.base_conf.Dbifpn + PHIs[self.D]
+    
+    @property
+    def Dclass(self) -> int:
+        return self.base_conf.Dclass + math.floor(PHIs[self.D] / 3)
+    
+    @property
+    def B(self) -> int:
+        return self.D
+    
+    def print_conf(self) -> None:
+        print(f'D{self.D} | B{self.B} | {self.input_size:5d} | '
+              f'{self.Wbifpn:4d} | {self.Dbifpn} | {self.Dclass} |')
 
 TrainingOut = Tuple[tf.Tensor, tf.Tensor]
 InferenceOut = Tuple[Sequence[tf.Tensor], 
                      Sequence[tf.Tensor], 
                      Sequence[tf.Tensor]]
-
-
-_AVAILABLE_WEIGHTS = {None, 'imagenet', 'D0-VOC'}
-_WEIGHTS_PATHS = {
-    'D0-VOC': 'gs://ml-generic-purpose-tf-models/D0-VOC',
-    # 'D0-VOC-FPN': 'gs://ml-generic-purpose-tf-models/D0-VOC-FPN'
-}
 
 
 class EfficientDet(tf.keras.Model):
@@ -60,47 +117,8 @@ class EfficientDet(tf.keras.Model):
                  
         super(EfficientDet, self).__init__()
 
-        # Check arguments coherency 
-        if custom_head_classifier is True and num_classes is None:
-            raise ValueError('If include_top is False, you must specify '
-                             'the num_classes')
-        
-        if weights not in _AVAILABLE_WEIGHTS:
-            raise ValueError(f'Weights {weights} not available.\n'
-                             f'The available weights are '
-                             f'{list(_AVAILABLE_WEIGHTS)}')
-        
-        if ((weights is 'imagenet' or weights is None) 
-            and custom_head_classifier):
-            raise ValueError('Custom Head does not make sense when '
-                             'training the model from scratch. '
-                             'Set custom_head_classifier to False or specify '
-                             'other weights.')
-
-        # If weights related to efficientdet are set,
-        # update the model hyperparameters according to the checkpoint,
-        # but printing a warning
-        if weights != 'imagenet' and weights is not None:
-            from efficientdet.utils.checkpoint import download_folder
-            checkpoint_path = _WEIGHTS_PATHS[weights]
-            save_dir = Path(download_folder(checkpoint_path))
-
-            params = json.load((save_dir / 'hp.json').open())
-
-            # If num_classes is specified it must be the same as in the 
-            # weights checkpoint except if the custom head classifier is set
-            # to true
-            if (num_classes is not None and not custom_head_classifier and
-                num_classes != params['n_classes']):
-                raise ValueError(f'Weights {weights} num classes are different'
-                                  'from num_classes argument, please leave it '
-                                  ' as None or specify the correct classes')
-            
-            bidirectional = params['bidirectional']
-            D = params['efficientdet']
-
         # Declare the model architecture
-        self.config = config.EfficientDetCompudScaling(D=D)
+        self.config = EfficientDetCompudScaling(D=D)
         
         # Setup efficientnet backbone
         backbone_weights = 'imagenet' if weights == 'imagenet' else None
@@ -136,24 +154,7 @@ class EfficientDet(tf.keras.Model):
 
         # Inference variables, won't be used during training
         self.filter_detections = models.layers.FilterDetections(
-            config.AnchorsConfig(), score_threshold)
-
-        # Load the weights if needed
-        if weights is not None and weights != 'imagenet':
-            tmp = training_mode
-            self.training_mode = True
-            self.build([None, *self.config.input_size, 3])
-            self.load_weights(str(save_dir / 'model.h5'),
-                              by_name=True,
-                              skip_mismatch=custom_head_classifier)
-            self.training_mode = tmp
-            self.training_mode = tmp
-
-            # Append a custom classifier
-            if custom_head_classifier:
-                self.class_head = models.RetinaNetClassifier(
-                    self.config.Wbifpn, self.config.Dclass,
-                    num_classes=num_classes, prefix='class_head/')
+            AnchorsConfig(), score_threshold)
 
     @property
     def score_threshold(self) -> float:
@@ -196,48 +197,8 @@ class EfficientDet(tf.keras.Model):
         # [BATCH, -1, num_classes]
         class_scores = tf.concat(class_scores, axis=1)
 
-        if self.training_mode:
-            return bboxes, class_scores
-        else:
-            return self.filter_detections(images, bboxes, class_scores)
+        # if self.training_mode:
+        return bboxes, class_scores
+        # else:
+        #     return self.filter_detections(images, bboxes, class_scores)
     
-    @staticmethod
-    def from_pretrained(checkpoint_path: Union[Path, str], 
-                        num_classes: int = None,
-                        **kwargs: Any) -> 'EfficientDet':
-        """
-        Instantiates an efficientdet model with pretreined weights.
-        For transfer learning, the classifier head can be overwritten by
-        a new randomly initialized one.
-
-        Parameters
-        ----------
-        checkpoint_path: Union[Path, str]
-            Checkpoint directory
-        num_classes: int, default None
-            If left to None the model will have the checkpoint head, 
-            otherwise the head will be overwrite with a new randomly initialized
-            classification head. Useful when training on your own dataset
-        
-        Returns
-        ------- 
-        EfficientDet
-        """
-        from efficientdet.utils.checkpoint import load
-        
-        if (not Path(checkpoint_path).is_dir() and 
-                str(checkpoint_path) not in _AVAILABLE_WEIGHTS):
-            raise ValueError(f'Checkpoint {checkpoint_path} is not available')
-        
-        if str(checkpoint_path) in _AVAILABLE_WEIGHTS:
-            checkpoint_path = _WEIGHTS_PATHS[str(checkpoint_path)]
-
-        model, _ = load(checkpoint_path, **kwargs)
-
-        if num_classes is not None:
-            print('Loading a custom classification head...')
-            model.num_classes = num_classes
-            model.class_head = models.RetinaNetClassifier(
-                model.config.Wbifpn, model.config.D, num_classes)
-
-        return model
