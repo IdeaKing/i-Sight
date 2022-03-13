@@ -5,6 +5,9 @@ import os
 import numpy as np
 import tensorflow as tf
 
+from src.utils.postprocess import FilterDetections
+from src.utils.label_utils import _generate_anchors, _compute_gt
+
 
 def object_detection_optimizer(configs):
     teacher_optimizer=tf.keras.optimizers.Adam(
@@ -193,3 +196,46 @@ def update_tensorboard(losses, step):
         tf.summary.scalar(
             key, data=value, step=step)
     tf.summary.flush()
+
+
+class PseudoLabelObjectDetection():
+    """Change the logits into labels and into anchored labels for object detection.
+    :params configs: Configuration class
+    :params logits: The outputs from the model
+    :returns: Pseudo-labels for object detection models
+    """
+    def __init__(self, configs: object) -> None:
+        self.configs = configs
+        self.postprocess = FilterDetections(configs, configs.score_threshold)
+        self.anchors = _generate_anchors(
+            configs, 
+            configs.image_dims[0])
+
+    
+    def __call__(self, logits):
+        batched_anchored_cls = []
+        batched_anchored_bbx = []
+        pl_images = tf.zeros(
+            (self.configs.unlabeled_batch_size, 
+             *self.configs.image_dims, 
+             3),
+            dtype=tf.float32)
+
+        logits_cls, logits_bbx = logits[0], logits[1]
+
+        pl_cls, pl_bbx, _ = self.postprocess(
+            images=pl_images,
+            regressors=logits_bbx,
+            class_scores=logits_cls)
+
+        for cls, bbx in zip(pl_cls, pl_bbx):
+            anchored_cls, anchored_bbx = _compute_gt(
+                images=tf.zeros(self.configs.batch_size, *self.configs.image_dims, 3),
+                ground_truth=(cls, bbx),
+                anchors=self.anchors,
+                num_classes=self.configs.num_classes)
+            batched_anchored_cls.append(anchored_cls)
+            batched_anchored_bbx.append(anchored_bbx)
+
+        return (tf.constant(batched_anchored_cls, dtype=tf.int32), 
+                tf.constant(batched_anchored_bbx, dtype=tf.float32))

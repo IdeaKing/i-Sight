@@ -3,6 +3,9 @@ import tensorflow as tf
 
 import tensorflow_addons as tfa
 
+from src.utils.training_utils import PseudoLabelObjectDetection
+
+
 class FocalLoss(tf.keras.losses.Loss):
     def __init__(self, alpha: float = 0.25, gamma: float = 1.5) -> None:
         super(FocalLoss, self).__init__()
@@ -57,15 +60,17 @@ class HuberLoss(tf.keras.losses.Loss):
 
 class UDA(tf.keras.losses.Loss):
     """UDA Loss Function."""
-    def __init__(self, configs):
+    def __init__(self, configs: object = None):
         super(UDA, self).__init__()
-        self.training_type = configs.training_type
         self.configs = configs
         self.convert_to_labels = PseudoLabelObjectDetection(configs)
-        self.loss = effdet_loss(configs)
+
+        self.focal_loss = FocalLoss()
+        self.huber_loss = HuberLoss()
         self.consistency_loss = tf.keras.losses.KLDivergence()
 
-    def __call__(self, y_true, y_pred):
+
+    def __call__(self, y_true: tf.Tensor, y_pred: tf.Tensor):
         labels = y_true
         masks = {}
         logits = {}
@@ -78,51 +83,13 @@ class UDA(tf.keras.losses.Loss):
                 self.configs.unlabeled_batch_size],
             axis = 0)
         # Step 1: Loss for Labeled Values
-        loss["l"] = self.loss(labels["l"], logits["l"])
+        labeled_cls_loss = self.focal_loss(labels["l"][0], logits["l"][0])
+        labeled_obd_loss = self.huber_loss(labels["l"][1], logits["l"][1])
+        loss["l"] = tf.reduce_sum([labeled_cls_loss, labeled_obd_loss])
         # Step 2: Loss for unlabeled values
-        labels["u_ori"] = logits["u_ori"] #self.convert_to_labels(logits["u_ori"])
-        loss["u"] = self.consistency_loss(labels["u_ori"], logits["u_aug"])
+        labels["u_ori"] = self.convert_to_labels(logits["u_ori"]) # Applies NMS, anchors
+        # Consistency loss between unlabeled values
+        unlabeled_cls_loss = self.consistency_loss(labels["u_ori"][0], logits["u_aug"][0])
+        unlabeled_obd_loss = self.consistency_loss(labels["u_ori"][1], logits["u_aug"][1])
+        loss["u"] = tf.reduce_sum([unlabeled_cls_loss, unlabeled_obd_loss])
         return logits, labels, masks, loss
-
-
-class PseudoLabelObjectDetection():
-    """Change the logits into labels for object detection.
-    :params configs: Configuration class
-    :params logits: The outputs from the model
-    :returns: Pseudo-labels for object detection models
-    """
-    def __init__(self, configs):
-        self.configs = configs
-        self.anchors = Anchors(
-            configs=configs)(image_size=configs.image_dims)
-        self.nms = NMS(configs=configs)
-        self.box_transform = BoxTransform()
-        self.clip_boxes = ClipBoxes(configs)
-    
-    def __call__(self, logits):
-        final_out = np.zeros(
-            (self.configs.unlabeled_batch_size, 
-             self.configs.max_box_num, 
-             5),
-             dtype=np.float32)
-        for i, logit in enumerate(logits):
-            reg_results, cls_results = logit[..., :4], logit[..., 4:]
-            reg_results = np.expand_dims(reg_results, axis=0)
-            cls_results = np.expand_dims(cls_results, axis=0)
-            transformed_anchors = self.box_transform(self.anchors, reg_results)
-            transformed_anchors = self.clip_boxes(transformed_anchors)
-            scores = tf.math.reduce_max(cls_results, axis=2).numpy()
-            classes = tf.math.argmax(cls_results, axis=2).numpy()
-            final_boxes, final_scores, final_classes = self.nms(
-                boxes=transformed_anchors[0, :, :],
-                box_scores=np.squeeze(scores),
-                box_classes=np.squeeze(classes))
-            merged_output = np.concatenate(
-                [final_boxes.numpy(), np.expand_dims(final_classes.numpy(),axis=-1)],
-                axis=1).tolist()
-            num_of_pads = int(self.configs.max_box_num) - int(len(merged_output))
-            
-            for pad in range(num_of_pads):
-                merged_output.append([0, 0, 0, 0, -1])
-            final_out[i] = np.array(merged_output)
-        return final_out
