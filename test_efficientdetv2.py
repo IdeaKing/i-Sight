@@ -1,4 +1,3 @@
-import albumentations as A
 import tensorflow as tf
 import tensorflow_addons as tfa
 
@@ -9,7 +8,13 @@ from src.test_models.efficientdet import EfficientDet
 from src.losses.loss import FocalLoss, HuberLoss
 from src.utils.label_utils import _generate_anchors, _compute_gt
 
+MIXED_PRECISION = True
+
 if __name__=="__main__":
+    
+    if MIXED_PRECISION:
+        tf.keras.mixed_precision.set_global_policy("mixed_float16")
+
     configs = config.Configs(
         training_type="obd",
         dataset_path="datasets/data/VOC2012",
@@ -37,7 +42,9 @@ if __name__=="__main__":
     optimizer = tfa.optimizers.AdamW(
         learning_rate=lr_schedule,
         weight_decay=4e-5)
-    
+    if MIXED_PRECISION:
+        optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
+
     
     model = EfficientDet(
         num_classes=configs.num_classes,
@@ -55,15 +62,19 @@ if __name__=="__main__":
 
             loss_cls = focal_loss(
                 y_true=label_cls,
-                y_pred=logits_cls)
+                y_pred=tf.cast(logits_cls, tf.float32))
             loss_bbx = huber_loss(
                 y_true=label_bbx,
-                y_pred=logits_bbx)
+                y_pred=tf.cast(logits_bbx, tf.float32))
             loss = tf.reduce_sum([loss_cls, loss_bbx])
+            if MIXED_PRECISION:
+                loss = optimizer.get_scaled_loss(loss)
 
         gradients = tape.gradient(
             target=loss, 
             sources=model.trainable_variables)
+        if MIXED_PRECISION:
+            gradients = optimizer.get_unscaled_gradients(gradients)
         optimizer.apply_gradients(
             grads_and_vars=zip(gradients, model.trainable_variables))
         return loss 
@@ -73,7 +84,8 @@ if __name__=="__main__":
         for step, (images, label_cls, label_bbx) in enumerate(labeled_dataset):
             labels = (label_cls, label_bbx)
             anchors = _generate_anchors(
-                configs, configs.image_dims[0])
+                configs, 
+                configs.image_dims[0])
             labels = _compute_gt(
                 images=images, 
                 classes=labels, 
