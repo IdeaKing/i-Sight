@@ -1,142 +1,168 @@
+from typing import List
+
 import tensorflow as tf
 
+from src.models import layers
+from src.models.head import call_cascade
 
-class BiFPN(tf.keras.layers.Layer):
-    def __init__(self, output_channels, layers):
+
+EPSILON = 1e-5
+
+
+class FastFusion(tf.keras.layers.Layer):
+    def __init__(self, size: int, features: int, prefix: str = '') -> None:
+        super(FastFusion, self).__init__()
+
+        self.size = size
+        self.w = self.add_weight(name=prefix + 'w',
+                                 shape=(size,),
+                                 initializer=tf.initializers.Ones(),
+                                 trainable=True)
+        self.relu = tf.keras.layers.Activation('relu', name=prefix + 'relu')
+        
+        self.conv = layers.ConvBlock(features,
+                                     separable=True,
+                                     kernel_size=3, 
+                                     strides=1, 
+                                     padding='same', 
+                                     activation='swish',
+                                     prefix=prefix + 'conv_block/')
+        self.resize = layers.Resize(features, prefix=prefix + 'resize/')
+
+    def call(self, 
+             inputs: List[tf.Tensor], 
+             training: bool = True) -> tf.Tensor:
+        """
+        Parameters
+        ----------
+        inputs: List[tf.Tensor] of shape (BATCH, H, W, C)
+        """
+        # The last feature map has to be resized according to the
+        # other inputs
+        resampled_feature = self.resize(
+            inputs[-1], tf.shape(inputs[0]), training=training)
+
+        resampled_features = inputs[:-1] + [resampled_feature]
+
+        # wi has to be larger than 0 -> Apply ReLU
+        w = self.relu(self.w)
+        w_sum = EPSILON + tf.reduce_sum(w, axis=0)
+
+        # [INPUTS, BATCH, H, W, C]
+        weighted_inputs = [(w[i] * resampled_features[i]) / w_sum
+                           for i in range(self.size)]
+
+        # Sum weighted inputs
+        # (BATCH, H, W, C)
+        weighted_sum = tf.add_n(weighted_inputs)
+        return self.conv(weighted_sum, training=training)
+        
+
+class BiFPNBlock(tf.keras.layers.Layer):
+
+    def __init__(self, features: int, prefix: str = '') -> None:
+        super(BiFPNBlock, self).__init__()
+
+        # Feature fusion for intermediate level
+        # ff stands for Feature fusion
+        # td refers to intermediate level
+        self.ff_6_td = FastFusion(2, features, 
+                                  prefix=prefix + 'ff_6_td_P6-P7_/')
+        self.ff_5_td = FastFusion(2, features,
+                                  prefix=prefix + 'ff_5_td_P5_P6_td/')
+        self.ff_4_td = FastFusion(2, features, 
+                                  prefix=prefix + 'ff_4_td_P4_P5_td/')
+
+        # Feature fusion for output
+        self.ff_7_out = FastFusion(2, features,
+                                   prefix=prefix + 'ff_7_out_P7_P6_td/')
+        self.ff_6_out = FastFusion(3, features,
+                                   prefix=prefix + 'ff_6_out_P6_P6_td_P7_out/')
+        self.ff_5_out = FastFusion(3, features,
+                                   prefix=prefix + 'ff_5_out_P5_P5_td_P4_out/')
+        self.ff_4_out = FastFusion(3, features,
+                                   prefix=prefix + 'ff_4_out_P4_P4_td_P3_out/')
+        self.ff_3_out = FastFusion(2, features,
+                                   prefix=prefix + 'ff_3_out_P3_P4_td/')
+
+    def call(self, 
+             features: List[tf.Tensor], 
+             training: bool = True) -> List[tf.Tensor]:
+        """
+        Computes the feature fusion of bottom-up features comming
+        from the Backbone NN
+
+        Parameters
+        ----------
+        features: List[tf.Tensor]
+            Feature maps of each convolution stage of the
+            backbone neural network
+        """
+        P3, P4, P5, P6, P7 = features
+
+        # Compute the intermediate state
+        # Note that P3 and P7 have no intermediate state
+        P6_td = self.ff_6_td([P6, P7], training=training)
+        P5_td = self.ff_5_td([P5, P6_td], training=training)
+        P4_td = self.ff_4_td([P4, P5_td], training=training)
+
+        # Compute out features maps
+        P3_out = self.ff_3_out([P3, P4_td], training=training)
+        P4_out = self.ff_4_out([P4, P4_td, P3_out], training=training)
+        P5_out = self.ff_5_out([P5, P5_td, P4_out], training=training)
+        P6_out = self.ff_6_out([P6, P6_td, P5_out], training=training)
+        P7_out = self.ff_7_out([P7, P6_td], training=training)
+
+        return [P3_out, P4_out, P5_out, P6_out, P7_out]
+
+
+class BiFPN(tf.keras.Model):
+    
+    def __init__(self, 
+                 features: int = 64, 
+                 n_blocks: int = 3, 
+                 prefix: str = '') -> None:
         super(BiFPN, self).__init__()
-        self.levels = 5
-        self.output_channels = output_channels
-        self.layers = layers
-        self.transform_convs = []
-        self.bifpn_modules = []
-        for _ in range(self.levels):
-            self.transform_convs.append(ConvNormAct(filters=output_channels,
-                                                    kernel_size=(1, 1),
-                                                    strides=1,
-                                                    padding="same"))
-        for _ in range(self.layers):
-            self.bifpn_modules.append(BiFPNModule(self.output_channels))
 
-    def call(self, inputs, training=None, **kwargs):
-        """
-        :param inputs: list of features
-        :param training:
-        :param kwargs:
-        :return: list of features
-        """
-        assert len(inputs) == self.levels
-        x = []
-        for i in range(len(inputs)):
-            x.append(self.transform_convs[i](inputs[i], training=training))
-        for j in range(self.layers):
-            x = self.bifpn_modules[j](x, training=training)
-        return x
+        # One pixel-wise for each feature comming from the 
+        # bottom-up path
+        self.pixel_wise = [layers.ConvBlock(features, kernel_size=1, 
+                                            prefix=prefix + f'pixel_wise_{i}/')
+                            for i in range(3)] 
 
+        self.gen_P6 = layers.ConvBlock(features, 
+                                       kernel_size=3, 
+                                       strides=2, 
+                                       padding='same',
+                                       prefix=prefix + 'gen_P6/')
+        
+        self.relu = tf.keras.layers.Activation('relu', name=prefix + 'relu')
 
-class BiFPNModule(tf.keras.layers.Layer):
-    def __init__(self, out_channels):
-        super(BiFPNModule, self).__init__()
-        self.w_fusion_list = []
-        self.conv_list = []
-        for i in range(8):
-            self.w_fusion_list.append(WeightedFeatureFusion(out_channels))
-        self.upsampling_1 = tf.keras.layers.UpSampling2D(size=(2, 2))
-        self.upsampling_2 = tf.keras.layers.UpSampling2D(size=(2, 2))
-        self.upsampling_3 = tf.keras.layers.UpSampling2D(size=(2, 2))
-        self.upsampling_4 = tf.keras.layers.UpSampling2D(size=(2, 2))
-        self.maxpool_1 = tf.keras.layers.MaxPool2D(pool_size=(2, 2))
-        self.maxpool_2 = tf.keras.layers.MaxPool2D(pool_size=(2, 2))
-        self.maxpool_3 = tf.keras.layers.MaxPool2D(pool_size=(2, 2))
-        self.maxpool_4 = tf.keras.layers.MaxPool2D(pool_size=(2, 2))
+        self.gen_P7 = layers.ConvBlock(features, 
+                                       kernel_size=3, 
+                                       strides=2, 
+                                       padding='same',
+                                       prefix=prefix + 'gen_P7/')
 
-    def call(self, inputs, training=None, **kwargs):
-        """
-        :param inputs: list of features
-        :param training:
-        :param kwargs:
-        :return:
-        """
-        assert len(inputs) == 5
-        f3, f4, f5, f6, f7 = inputs
-        f6_d = self.w_fusion_list[0]([f6, self.upsampling_1(f7)], training=training)
-        f5_d = self.w_fusion_list[1]([f5, self.upsampling_2(f6_d)], training=training)
-        f4_d = self.w_fusion_list[2]([f4, self.upsampling_3(f5_d)], training=training)
+        self.blocks = [BiFPNBlock(features, prefix=prefix + f'block_{i}/') 
+                                  for i in range(n_blocks)]
 
-        f3_u = self.w_fusion_list[3]([f3, self.upsampling_4(f4_d)], training=training)
-        f4_u = self.w_fusion_list[4]([f4, f4_d, self.maxpool_1(f3_u)], training=training)
-        f5_u = self.w_fusion_list[5]([f5, f5_d, self.maxpool_2(f4_u)], training=training)
-        f6_u = self.w_fusion_list[6]([f6, f6_d, self.maxpool_3(f5_u)], training=training)
-        f7_u = self.w_fusion_list[7]([f7, self.maxpool_4(f6_u)], training=training)
+    def call(self, 
+             inputs: List[tf.Tensor], 
+             training: bool = True) -> List[tf.Tensor]:
+        
+        # Each Pin has shape (BATCH, H, W, C)
+        # We first reduce the channels using a pixel-wise conv
+        _, _, *C = inputs
+        P3, P4, P5 = [self.pixel_wise[i](C[i], training=training) 
+                      for i in range(len(C))]
+        P6 = self.gen_P6(C[-1], training=training)
+        P7 = self.gen_P7(self.relu(P6), training=training)
 
-        return [f3_u, f4_u, f5_u, f6_u, f7_u]
-
-
-class SeparableConvNormAct(tf.keras.layers.Layer):
-    def __init__(self,
-                 filters,
-                 kernel_size,
-                 strides,
-                 padding):
-        super(SeparableConvNormAct, self).__init__()
-        self.conv = tf.keras.layers.SeparableConv2D(filters=filters,
-                                                    kernel_size=kernel_size,
-                                                    strides=strides,
-                                                    padding=padding)
-        self.bn = tf.keras.layers.BatchNormalization()
-
-    def call(self, inputs, training=None, **kwargs):
-        x = self.conv(inputs)
-        x = self.bn(x, training=training)
-        x = tf.nn.swish(x)
-        return x
-
-
-class ConvNormAct(tf.keras.layers.Layer):
-    def __init__(self,
-                 filters,
-                 kernel_size,
-                 strides,
-                 padding):
-        super(ConvNormAct, self).__init__()
-        self.conv = tf.keras.layers.Conv2D(filters=filters,
-                                           kernel_size=kernel_size,
-                                           strides=strides,
-                                           padding=padding)
-        self.bn = tf.keras.layers.BatchNormalization()
-
-    def call(self, inputs, training=None, **kwargs):
-        x = self.conv(inputs)
-        x = self.bn(x, training=training)
-        x = tf.nn.swish(x)
-        return x
-
-
-class WeightedFeatureFusion(tf.keras.layers.Layer):
-    def __init__(self, out_channels):
-        super(WeightedFeatureFusion, self).__init__()
-        self.epsilon = 1e-4
-        self.conv = SeparableConvNormAct(filters=out_channels, kernel_size=(3, 3), strides=1, padding="same")
-
-    def build(self, input_shape):
-        self.num_features = len(input_shape)
-        assert self.num_features >= 2
-        self.fusion_weights = self.add_weight(name="fusion_w",
-                                              shape=(self.num_features, ),
-                                              dtype=tf.dtypes.float32,
-                                              initializer=tf.constant_initializer(value=1.0 / self.num_features),
-                                              trainable=True)
-
-    def call(self, inputs, training=None, **kwargs):
-        """
-        :param inputs: list of features
-        :param kwargs:
-        :return:
-        """
-        fusion_w = tf.nn.relu(self.fusion_weights)
-        sum_features = []
-        for i in range(self.num_features):
-            sum_features.append(fusion_w[i] * inputs[i])
-        output_feature = tf.reduce_sum(input_tensor=sum_features, axis=0) / (tf.reduce_sum(input_tensor=fusion_w) + self.epsilon)
-        output_feature = self.conv(output_feature, training=training)
-        return output_feature
+        features = [P3, P4, P5, P6, P7]
+        
+        features = call_cascade(self.blocks, 
+                                         features, 
+                                         training=training)
+        return features
 

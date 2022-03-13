@@ -91,6 +91,10 @@ class Configs():
         elif self.training_type == "obd":
             self.network_type = "D0"
             # Network configurations
+            self.network = {"D0": 0, "D1": 1, 
+                            "D2": 2, "D3": 3, 
+                            "D4": 4, "D5": 5, 
+                            "D6": 6, "D7": 7}
             self.image_size = {"D0": (512, 512), "D1": (640, 640), 
                                "D2": (768, 768), "D3": (896, 896), 
                                "D4": (1024, 1024), "D5": (1280, 1280), 
@@ -120,6 +124,7 @@ class Configs():
                             "D4": 4, "D5": 4, 
                             "D6": 5, "D7": 5}
             # Update the Params
+            self.network = self.network[self.network_type]
             self.image_dims = self.image_size[self.network_type]
             self.width_coefficient = self.width_coefficient[self.network_type]
             self.depth_coefficient = self.depth_coefficient[self.network_type]

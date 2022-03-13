@@ -110,7 +110,7 @@ def build_mbconv_block(in_channels, out_channels, layers, stride, expansion_fact
 
 
 class EfficientNet(tf.keras.Model):
-    def __init__(self, width_coefficient, depth_coefficient, dropout_rate, drop_connect_rate=0.2):
+    def __init__(self, width_coefficient, depth_coefficient, drop_connect_rate=0.2):
         super(EfficientNet, self).__init__()
 
         self.conv1 = tf.keras.layers.Conv2D(filters=round_filters(32, width_coefficient),

@@ -4,11 +4,11 @@ import tensorflow_addons as tfa
 import src.dataset as dataset
 import src.config as config
 
-from src.test_models.efficientdet import EfficientDet
+from src.models.efficientdet import EfficientDet
 from src.losses.loss import FocalLoss, HuberLoss
 from src.utils.label_utils import _generate_anchors, _compute_gt
 
-MIXED_PRECISION = True
+MIXED_PRECISION = False
 
 if __name__=="__main__":
     
@@ -48,7 +48,7 @@ if __name__=="__main__":
     
     model = EfficientDet(
         num_classes=configs.num_classes,
-        D=0,
+        configs=configs,
         weights="imagenet")
 
     print(f"Num classes {configs.num_classes}")

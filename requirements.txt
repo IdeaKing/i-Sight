@@ -1,5 +1,6 @@
 # Deep learning training requirements
 tensorflow==2.7.0
+efficientnet
 opencv-python
 albumentations
 matplotlib
