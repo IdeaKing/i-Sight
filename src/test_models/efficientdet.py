@@ -198,7 +198,7 @@ class EfficientDet(tf.keras.Model):
         class_scores = tf.concat(class_scores, axis=1)
 
         # if self.training_mode:
-        return bboxes, class_scores
+        return class_scores, bboxes
         # else:
         #     return self.filter_detections(images, bboxes, class_scores)
     

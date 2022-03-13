@@ -64,10 +64,10 @@ def normalize_bndboxes(boxes: tf.Tensor,
     w = image_size[1]
 
     x1, y1, x2, y2 = tf.split(boxes, 4, axis=1)
-    x1 /= (w - 1)
-    x2 /= (w - 1)
-    y1 /= (h - 1)
-    y2 /= (h - 1)
+    x1 /= (w)
+    x2 /= (w)
+    y1 /= (h)
+    y2 /= (h)
     return tf.concat([x1, y1, x2, y2], axis=1)
 
 

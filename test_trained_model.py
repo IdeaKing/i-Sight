@@ -14,7 +14,8 @@ class Configs:
     dataset_path = "datasets/data/VOC2012"
     image_dims = (512, 512)
     labels_path = os.path.join(
-        dataset_path, "labels.txt")
+        dataset_path, 
+        "labels.txt")
     labels = t_utils.parse_label_file(labels_path)
     num_classes = len(labels)
 
@@ -43,7 +44,7 @@ def test(image_path, model, configs):
         axis=0) # (1, 512, 512, 3)
     pred_box, pred_cls = model(image, training=False)
     boxes, labels, scores = FilterDetections(
-        configs, 0.15)(images=image,
+        configs, Configs.score_threshold)(images=image,
             regressors=pred_box,
             class_scores=pred_cls)
     labels = [list(configs.labels.keys())[int(l)] 
@@ -61,12 +62,12 @@ def test(image_path, model, configs):
     plt.imshow(image)
     plt.show()
 
+
 if __name__ == "__main__":
     configs = Configs()
-    print(configs.labels)
 
     # Path to image and model
-    image_path = "datasets/data/VOC2012/images/2007_000272.jpg"
+    image_path = "datasets/data/VOC2012/images/2009_002744.jpg"
     model_path = "model"
     model = tf.keras.models.load_model(model_path)
 

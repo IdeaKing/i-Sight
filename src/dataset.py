@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import tensorflow as tf
 import albumentations as A
+import matplotlib.pyplot as plt
 
 from src.utils.label_utils import _generate_anchors, _compute_gt
 from src.utils.bndbox import normalize_bndboxes, scale_bndboxes
@@ -42,6 +43,28 @@ class Dataset():
         image = aug["image"]/255.
         image = np.array(image, dtype=np.float32)
         return image
+
+
+    def augment(self, image, label, bbx):
+        """For augmenting images and bboxes."""
+        # Read and preprocess the image
+        image, label, bbx = (image.numpy(), label.numpy().tolist(), bbx.numpy().tolist())
+        # Augmentation function
+        transform = A.Compose(
+            [A.Flip(p=0.5),
+             A.Rotate(p=0.5),
+             A.RandomBrightnessContrast(p=0.2)],
+             bbox_params=A.BboxParams(
+                 format="pascal_voc", 
+                 label_fields=["class_labels"]))
+        aug = transform(
+            image=image,
+            bboxes=bbx,
+            class_labels=label)
+        image = np.array(aug["image"], np.float32)
+        labels = np.array(aug["class_labels"], np.int32)
+        bbx = np.array(aug["bboxes"], np.float32)
+        return image, labels, bbx
 
 
     def fundus_preprocessing(self, image):
@@ -84,7 +107,7 @@ class Dataset():
         image_size = (int(root.findtext('size/height')),
                     int(root.findtext('size/width')))  
         boxes = root.findall('object')
-        bbs = []
+        bbx = []
         labels = []
 
         for b in boxes:
@@ -93,16 +116,16 @@ class Dataset():
                 int(bb.findtext('ymin')),
                 int(bb.findtext('xmax')),
                 int(bb.findtext('ymax')))
-            bbs.append(bb)
+            bbx.append(bb)
             labels.append(
                 int(self.configs.labels[b.findtext('name')]))
 
-        bbs = tf.stack(bbs)
-        # BBS are in relative mode
-        bbs = normalize_bndboxes(bbs, image_size) 
-        # Scale BBS to input image dims
-        bbs = scale_bndboxes(bbs, self.configs.image_dims)
-        return labels, bbs
+        bbx = tf.stack(bbx)
+        # bbx are in relative mode
+        bbx = normalize_bndboxes(bbx, image_size) 
+        # Scale bbx to input image dims
+        bbx = scale_bndboxes(bbx, self.configs.image_dims)
+        return labels, bbx
 
 
     def parse_process_image(self, file_name):
@@ -118,11 +141,10 @@ class Dataset():
 
     def parse_process_voc(self, file_name):
         file_name = bytes.decode(file_name, encoding="utf-8")
-        labels, bbs = self.parse_xml(file_name)
-        
+        labels, bbx = self.parse_xml(file_name)
         labels = np.array(labels, np.int32)
-        bbs = np.array(bbs, np.float32)
-        return labels, bbs
+        bbx = np.array(bbx, np.float32)
+        return labels, bbx
 
 
     def create_dataset(self):
@@ -152,11 +174,17 @@ class Dataset():
             num_parallel_calls=tf.data.experimental.AUTOTUNE,
             name="bbox_map_ds")
         ds = tf.data.Dataset.zip((l_image_ds, l_label_ds))
+        ds = ds.map(
+            lambda x, y: tf.py_function(
+                self.augment,
+                inp=[x, *y],
+                Tout=[tf.float32, tf.int32, tf.float32]),
+            num_parallel_calls=tf.data.experimental.AUTOTUNE,
+            name="augment_ds")
         ds = ds.shuffle(self.configs.shuffle_size)
         ds = ds.padded_batch(batch_size=self.configs.batch_size,
-                             padded_shapes=((*self.configs.image_dims, 3), 
-                                            ((None,), (None, 4))),
-                             padding_values=(0., (-1, -1.)))
+                             padded_shapes=((*self.configs.image_dims, 3), (None,), (None, 4)),
+                             padding_values=(0., -1, -1.))
         return ds
 
 def load_data(configs, dataset_type = "labeled"):

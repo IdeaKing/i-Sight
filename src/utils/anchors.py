@@ -204,7 +204,7 @@ def anchor_targets_bbox(anchors: tf.Tensor,
     regression_per_anchor = tf.concat(
         [regression_per_anchor, indices], axis=-1)
 
-    return regression_per_anchor, labels_per_anchor
+    return labels_per_anchor, regression_per_anchor
 
 
 def compute_gt_annotations(anchors: tf.Tensor,

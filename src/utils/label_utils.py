@@ -8,17 +8,17 @@ import numpy as np
 
 
 def _compute_gt(images, 
-                annots, 
+                classes, 
                 anchors, 
                 num_classes):
 
-    labels = annots[0]
-    boxes = annots[1]
+    labels = classes[0]
+    boxes = classes[1]
 
-    target_reg, target_clf = anchors_utils.anchor_targets_bbox(
+    target_clf, target_reg = anchors_utils.anchor_targets_bbox(
             anchors, images, boxes, labels, num_classes)
 
-    return target_reg, target_clf
+    return target_clf, target_reg
 
 
 
