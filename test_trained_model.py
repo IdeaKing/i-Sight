@@ -43,15 +43,14 @@ def test(image_path, model, configs):
         preprocess_image(image_path, configs),
         axis=0) # (1, 512, 512, 3)
     pred_box, pred_cls = model(image, training=False)
-    boxes, labels, scores = FilterDetections(
+    labels, boxes, scores = FilterDetections(
         configs, Configs.score_threshold)(images=image,
             regressors=pred_box,
             class_scores=pred_cls)
     labels = [list(configs.labels.keys())[int(l)] 
               for l in labels[0]]
-    
-    scores = scores[0]
     boxes = boxes[0]
+    scores = scores[0]
 
     image = draw_boxes(
         np.squeeze(image, axis=0),

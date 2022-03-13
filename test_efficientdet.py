@@ -88,7 +88,7 @@ if __name__=="__main__":
                 configs.image_dims[0])
             labels = _compute_gt(
                 images=images, 
-                classes=labels, 
+                ground_truth=labels, 
                 anchors=anchors, 
                 num_classes=configs.num_classes)
             loss = train_step(images, labels)

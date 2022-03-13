@@ -92,4 +92,4 @@ class FilterDetections:
             boxes, class_scores, score_threshold=self.score_threshold)
 
         # TODO: Pad output
-        return boxes, labels, scores
+        return labels, boxes, scores
