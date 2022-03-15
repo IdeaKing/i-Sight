@@ -1,168 +1,175 @@
-from typing import List
-
-import tensorflow as tf
-
-from src.models import layers
-from src.models.head import call_cascade
-
-
-EPSILON = 1e-5
-
-
-class FastFusion(tf.keras.layers.Layer):
-    def __init__(self, size: int, features: int, prefix: str = '') -> None:
-        super(FastFusion, self).__init__()
-
-        self.size = size
-        self.w = self.add_weight(name=prefix + 'w',
-                                 shape=(size,),
-                                 initializer=tf.initializers.Ones(),
-                                 trainable=True)
-        self.relu = tf.keras.layers.Activation('relu', name=prefix + 'relu')
-        
-        self.conv = layers.ConvBlock(features,
-                                     separable=True,
-                                     kernel_size=3, 
-                                     strides=1, 
-                                     padding='same', 
-                                     activation='swish',
-                                     prefix=prefix + 'conv_block/')
-        self.resize = layers.Resize(features, prefix=prefix + 'resize/')
-
-    def call(self, 
-             inputs: List[tf.Tensor], 
-             training: bool = True) -> tf.Tensor:
-        """
-        Parameters
-        ----------
-        inputs: List[tf.Tensor] of shape (BATCH, H, W, C)
-        """
-        # The last feature map has to be resized according to the
-        # other inputs
-        resampled_feature = self.resize(
-            inputs[-1], tf.shape(inputs[0]), training=training)
-
-        resampled_features = inputs[:-1] + [resampled_feature]
-
-        # wi has to be larger than 0 -> Apply ReLU
-        w = self.relu(self.w)
-        w_sum = EPSILON + tf.reduce_sum(w, axis=0)
-
-        # [INPUTS, BATCH, H, W, C]
-        weighted_inputs = [(w[i] * resampled_features[i]) / w_sum
-                           for i in range(self.size)]
-
-        # Sum weighted inputs
-        # (BATCH, H, W, C)
-        weighted_sum = tf.add_n(weighted_inputs)
-        return self.conv(weighted_sum, training=training)
-        
-
-class BiFPNBlock(tf.keras.layers.Layer):
-
-    def __init__(self, features: int, prefix: str = '') -> None:
-        super(BiFPNBlock, self).__init__()
-
-        # Feature fusion for intermediate level
-        # ff stands for Feature fusion
-        # td refers to intermediate level
-        self.ff_6_td = FastFusion(2, features, 
-                                  prefix=prefix + 'ff_6_td_P6-P7_/')
-        self.ff_5_td = FastFusion(2, features,
-                                  prefix=prefix + 'ff_5_td_P5_P6_td/')
-        self.ff_4_td = FastFusion(2, features, 
-                                  prefix=prefix + 'ff_4_td_P4_P5_td/')
-
-        # Feature fusion for output
-        self.ff_7_out = FastFusion(2, features,
-                                   prefix=prefix + 'ff_7_out_P7_P6_td/')
-        self.ff_6_out = FastFusion(3, features,
-                                   prefix=prefix + 'ff_6_out_P6_P6_td_P7_out/')
-        self.ff_5_out = FastFusion(3, features,
-                                   prefix=prefix + 'ff_5_out_P5_P5_td_P4_out/')
-        self.ff_4_out = FastFusion(3, features,
-                                   prefix=prefix + 'ff_4_out_P4_P4_td_P3_out/')
-        self.ff_3_out = FastFusion(2, features,
-                                   prefix=prefix + 'ff_3_out_P3_P4_td/')
-
-    def call(self, 
-             features: List[tf.Tensor], 
-             training: bool = True) -> List[tf.Tensor]:
-        """
-        Computes the feature fusion of bottom-up features comming
-        from the Backbone NN
-
-        Parameters
-        ----------
-        features: List[tf.Tensor]
-            Feature maps of each convolution stage of the
-            backbone neural network
-        """
-        P3, P4, P5, P6, P7 = features
-
-        # Compute the intermediate state
-        # Note that P3 and P7 have no intermediate state
-        P6_td = self.ff_6_td([P6, P7], training=training)
-        P5_td = self.ff_5_td([P5, P6_td], training=training)
-        P4_td = self.ff_4_td([P4, P5_td], training=training)
-
-        # Compute out features maps
-        P3_out = self.ff_3_out([P3, P4_td], training=training)
-        P4_out = self.ff_4_out([P4, P4_td, P3_out], training=training)
-        P5_out = self.ff_5_out([P5, P5_td, P4_out], training=training)
-        P6_out = self.ff_6_out([P6, P6_td, P5_out], training=training)
-        P7_out = self.ff_7_out([P7, P6_td], training=training)
-
-        return [P3_out, P4_out, P5_out, P6_out, P7_out]
+# Copyright 2020 Google Research. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""BiFPN/QuFPN and other FPN configs.
+BiFPN is presented in the EfficientDet paper.
+QuFPN is proposed in https://github.com/google/automl/pull/580
+"""
+import itertools
+from src.models import temp_hparams as hparams_config
 
 
-class BiFPN(tf.keras.Model):
-    
-    def __init__(self, 
-                 features: int = 64, 
-                 n_blocks: int = 3, 
-                 prefix: str = '') -> None:
-        super(BiFPN, self).__init__()
+def bifpn_config(min_level, max_level, weight_method):
+    """A dynamic bifpn config that can adapt to different min/max levels."""
+    p = hparams_config.Config()
+    p.weight_method = weight_method or 'fastattn'
 
-        # One pixel-wise for each feature comming from the 
-        # bottom-up path
-        self.pixel_wise = [layers.ConvBlock(features, kernel_size=1, 
-                                            prefix=prefix + f'pixel_wise_{i}/')
-                            for i in range(3)] 
+    # Node id starts from the input features and monotonically increase whenever
+    # a new node is added. Here is an example for level P3 - P7:
+    #     P7 (4)              P7" (12)
+    #     P6 (3)    P6' (5)   P6" (11)
+    #     P5 (2)    P5' (6)   P5" (10)
+    #     P4 (1)    P4' (7)   P4" (9)
+    #     P3 (0)              P3" (8)
+    # So output would be like:
+    # [
+    #   {'feat_level': 6, 'inputs_offsets': [3, 4]},  # for P6'
+    #   {'feat_level': 5, 'inputs_offsets': [2, 5]},  # for P5'
+    #   {'feat_level': 4, 'inputs_offsets': [1, 6]},  # for P4'
+    #   {'feat_level': 3, 'inputs_offsets': [0, 7]},  # for P3"
+    #   {'feat_level': 4, 'inputs_offsets': [1, 7, 8]},  # for P4"
+    #   {'feat_level': 5, 'inputs_offsets': [2, 6, 9]},  # for P5"
+    #   {'feat_level': 6, 'inputs_offsets': [3, 5, 10]},  # for P6"
+    #   {'feat_level': 7, 'inputs_offsets': [4, 11]},  # for P7"
+    # ]
+    num_levels = max_level - min_level + 1
+    node_ids = {min_level + i: [i] for i in range(num_levels)}
 
-        self.gen_P6 = layers.ConvBlock(features, 
-                                       kernel_size=3, 
-                                       strides=2, 
-                                       padding='same',
-                                       prefix=prefix + 'gen_P6/')
-        
-        self.relu = tf.keras.layers.Activation('relu', name=prefix + 'relu')
+    def level_last_id(level): return node_ids[level][-1]
+    def level_all_ids(level): return node_ids[level]
+    id_cnt = itertools.count(num_levels)
 
-        self.gen_P7 = layers.ConvBlock(features, 
-                                       kernel_size=3, 
-                                       strides=2, 
-                                       padding='same',
-                                       prefix=prefix + 'gen_P7/')
+    p.nodes = []
+    for i in range(max_level - 1, min_level - 1, -1):
+        # top-down path.
+        p.nodes.append({
+            'feat_level': i,
+            'inputs_offsets': [level_last_id(i),
+                               level_last_id(i + 1)]
+        })
+        node_ids[i].append(next(id_cnt))
 
-        self.blocks = [BiFPNBlock(features, prefix=prefix + f'block_{i}/') 
-                                  for i in range(n_blocks)]
+    for i in range(min_level + 1, max_level + 1):
+        # bottom-up path.
+        p.nodes.append({
+            'feat_level': i,
+            'inputs_offsets': level_all_ids(i) + [level_last_id(i - 1)]
+        })
+        node_ids[i].append(next(id_cnt))
 
-    def call(self, 
-             inputs: List[tf.Tensor], 
-             training: bool = True) -> List[tf.Tensor]:
-        
-        # Each Pin has shape (BATCH, H, W, C)
-        # We first reduce the channels using a pixel-wise conv
-        _, _, *C = inputs
-        P3, P4, P5 = [self.pixel_wise[i](C[i], training=training) 
-                      for i in range(len(C))]
-        P6 = self.gen_P6(C[-1], training=training)
-        P7 = self.gen_P7(self.relu(P6), training=training)
+    return p
 
-        features = [P3, P4, P5, P6, P7]
-        
-        features = call_cascade(self.blocks, 
-                                         features, 
-                                         training=training)
-        return features
 
+def qufpn_config(min_level, max_level, weight_method=None):
+    """A dynamic quad fpn config that can adapt to different min/max levels."""
+    # It extends the idea of BiFPN, and has four paths:
+    #   (up_down -> bottom_up) + (bottom_up -> up_down).
+    # See test for an example for level 2 and 7.
+    p = hparams_config.Config()
+    p.weight_method = weight_method or 'fastattn'
+    p.quad_method = 'fastattn'
+    num_levels = max_level - min_level + 1
+    node_ids = {min_level + i: [i] for i in range(num_levels)}
+    def level_last_id(level): return node_ids[level][-1]
+    def level_all_ids(level): return node_ids[level]
+    def level_first_id(level): return node_ids[level][0]
+    id_cnt = itertools.count(num_levels)
+
+    p.nodes = []
+    for i in range(max_level - 1, min_level - 1, -1):
+        # top-down path 1.
+        p.nodes.append({
+            'feat_level': i,
+            'inputs_offsets': [level_last_id(i),
+                               level_last_id(i + 1)],
+            'weight_method': p.weight_method
+        })
+        node_ids[i].append(next(id_cnt))
+    node_ids[max_level].append(node_ids[max_level][-1])
+
+    for i in range(min_level + 1, max_level):
+        # bottom-up path 2.
+        p.nodes.append({
+            'feat_level': i,
+            'inputs_offsets': level_all_ids(i) + [level_last_id(i - 1)],
+            'weight_method': p.weight_method
+        })
+        node_ids[i].append(next(id_cnt))
+
+    i = max_level
+    p.nodes.append({
+        'feat_level': i,
+        'inputs_offsets': [level_first_id(i)] + [level_last_id(i - 1)],
+        'weight_method': p.weight_method
+    })
+    node_ids[i].append(next(id_cnt))
+    node_ids[min_level].append(node_ids[min_level][-1])
+
+    for i in range(min_level + 1, max_level + 1, 1):
+        # bottom-up path 3.
+        p.nodes.append({
+            'feat_level': i,
+            'inputs_offsets': [
+                level_first_id(i),
+                level_last_id(i - 1) if i != min_level + 1 else level_first_id(i -
+                                                                               1)
+            ],
+            'weight_method': p.weight_method
+        })
+        node_ids[i].append(next(id_cnt))
+    node_ids[min_level].append(node_ids[min_level][-1])
+
+    for i in range(max_level - 1, min_level, -1):
+        # top-down path 4.
+        p.nodes.append({
+            'feat_level':
+                i,
+            'inputs_offsets': [node_ids[i][0]] + [node_ids[i][-1]] +
+                              [level_last_id(i + 1)],
+            'weight_method':
+                p.weight_method
+        })
+        node_ids[i].append(next(id_cnt))
+    i = min_level
+    p.nodes.append({
+        'feat_level': i,
+        'inputs_offsets': [node_ids[i][0]] + [level_last_id(i + 1)],
+        'weight_method': p.weight_method
+    })
+    node_ids[i].append(next(id_cnt))
+    node_ids[max_level].append(node_ids[max_level][-1])
+
+    for i in range(max_level, min_level - 1, -1):
+        # quad-add path.
+        p.nodes.append({
+            'feat_level': i,
+            'inputs_offsets': [node_ids[i][2], node_ids[i][4]],
+            'weight_method': p.quad_method
+        })
+        node_ids[i].append(next(id_cnt))
+
+    return p
+
+
+def get_fpn_config(fpn_name, min_level, max_level, weight_method):
+    """Get fpn related configuration."""
+    if not fpn_name:
+        fpn_name = 'bifpn'
+    name_to_config = {
+        'bifpn': bifpn_config(min_level, max_level, weight_method),
+        'qufpn': qufpn_config(min_level, max_level, weight_method),
+        # legacy only: to be deprecated.
+        'bifpn_dyn': bifpn_config(min_level, max_level, weight_method),
+    }
+    return name_to_config[fpn_name]
