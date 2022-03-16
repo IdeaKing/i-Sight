@@ -1,4 +1,6 @@
 # i-Sight Display Functions for Object Detection
+
+import tensorflow as tf
 from PIL import ImageDraw
 
 from src.utils.postprocess import _image_to_pil, _parse_boxes
@@ -33,10 +35,10 @@ def draw_boxes(image,
     """
     # Fill scores and labels with None if needed
     if labels is None:
-        labels = [''] * len(boxes)
+        labels = [""] * len(boxes)
     
     if scores is None:
-        scores = [''] * len(boxes)
+        scores = [""] * len(boxes)
     elif isinstance(scores, np.ndarray):
         scores = scores.reshape(-1).tolist()
     elif isinstance(scores, tf.Tensor):
@@ -44,9 +46,9 @@ def draw_boxes(image,
 
     # Check if scores and labels are correct
     assert len(labels) == len(boxes), \
-        'Labels and boxes must have the same length'
+        "Labels and boxes must have the same length"
     assert len(scores) == len(boxes), \
-        'Scores and boxes must have the same length'
+        "Scores and boxes must have the same length"
     """
     n_colors = len(colors)
     draw = ImageDraw.Draw(image)
@@ -60,3 +62,26 @@ def draw_boxes(image,
         draw.rectangle(box, outline=c, width=2)
     
     return image
+
+@tf.function
+def printProgressBar(
+    step, 
+    total, 
+    loss_vals):
+    """Training Progress Bar"""
+    decimals = 1
+    length = 20
+    fill = "=" #"█"
+    printEnd = "\r"
+
+    percent = ("{0:." + str(decimals) + "f}").format(100 * (step / float(total)))
+    filledLength = int(length * step // total)
+    bar = fill * filledLength + "-" * (length - filledLength)
+
+    print(f"\r Step: {step}/{total} |{bar}| {percent}%" + \
+          " ".join(f"loss-{i} {round(loss, 5)}" for i, loss in enumerate(loss_vals)), 
+          end=printEnd)
+
+    # Print New Line on Complete
+    if iter == total: 
+        print()

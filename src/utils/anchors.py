@@ -1,9 +1,10 @@
 import tensorflow as tf
 import numpy as np
 
+
 class AnchorGenerator(object):
-    
-    def __init__(self, 
+
+    def __init__(self,
                  size,
                  aspect_ratios,
                  stride):
@@ -22,7 +23,7 @@ class AnchorGenerator(object):
             2 ** (2 / 3.0)]
 
         self.anchors = self._generate()
-    
+
     def __call__(self, *args, **kwargs) -> tf.Tensor:
         return self.tile_anchors_over_feature_map(*args, **kwargs)
 
@@ -34,14 +35,14 @@ class AnchorGenerator(object):
         ----------
         feature_map: Tuple[int, int, int] H, W , C
             Feature map where anchors are going to be tiled
-        
+
         Returns
         --------
         tf.Tensor of shape [BATCH, N_BOXES, 4]
         """
         def arange(limit: int) -> tf.Tensor:
             return tf.range(0., tf.cast(limit, tf.float32), dtype=tf.float32)
-        
+
         h = feature_map_shape[0]
         w = feature_map_shape[1]
 
@@ -62,8 +63,8 @@ class AnchorGenerator(object):
         # reshape to (K*A, 4) shifted anchors
         A = len(self)
         K = shifts.shape[0]
-    
-        all_anchors = (tf.reshape(self.anchors, [1, A, 4]) 
+
+        all_anchors = (tf.reshape(self.anchors, [1, A, 4])
                        + tf.cast(tf.reshape(shifts, [K, 1, 4]), tf.float32))
         all_anchors = tf.reshape(all_anchors, [K * A, 4])
 
@@ -99,7 +100,8 @@ class AnchorGenerator(object):
 
 @tf.function(
     input_signature=[tf.TensorSpec(shape=[None, 4], dtype=tf.float32),
-                     tf.TensorSpec(shape=[None, None, None, 3], dtype=tf.float32),
+                     tf.TensorSpec(
+                         shape=[None, None, None, 3], dtype=tf.float32),
                      tf.TensorSpec(shape=[None, None, 4], dtype=tf.float32),
                      tf.TensorSpec(shape=[None, None], dtype=tf.int32),
                      tf.TensorSpec(shape=None, dtype=tf.int32),
@@ -134,7 +136,7 @@ def anchor_targets_bbox(anchors: tf.Tensor,
         (all anchors with overlap > positive_overlap are positive).
     padding_value: int
         Value used to pad labels
-        
+
     Returns
     --------
     Tuple[tf.Tensor, tf.Tensor]
@@ -153,11 +155,11 @@ def anchor_targets_bbox(anchors: tf.Tensor,
     im_shape = tf.shape(images)
     batch_size = im_shape[0]
     h = tf.cast(im_shape[1], tf.float32)
-    w = tf.cast(im_shape[2], tf.float32) 
+    w = tf.cast(im_shape[2], tf.float32)
 
-    result = compute_gt_annotations(anchors, 
+    result = compute_gt_annotations(anchors,
                                     bndboxes,
-                                    negative_overlap, 
+                                    negative_overlap,
                                     positive_overlap)
     positive_indices, ignore_indices, argmax_overlaps_inds = result
 
@@ -180,12 +182,12 @@ def anchor_targets_bbox(anchors: tf.Tensor,
     chose_labels = tf.gather_nd(labels, argmax_overlaps_inds)
     chose_labels = tf.reshape(chose_labels, [batch_size, -1])
 
-    # Labels per anchor 
+    # Labels per anchor
     # if is positive index add the class, else 0
     # To ignore the label add -1
     labels_per_anchor = tf.where(positive_indices, chose_labels, -1)
     labels_per_anchor = tf.where(ignore_indices, -1, labels_per_anchor)
-    labels_per_anchor = tf.one_hot(labels_per_anchor, 
+    labels_per_anchor = tf.one_hot(labels_per_anchor,
                                    axis=-1, depth=num_classes)
     labels_per_anchor = tf.cast(labels_per_anchor, tf.float32)
 
@@ -193,8 +195,8 @@ def anchor_targets_bbox(anchors: tf.Tensor,
     chose_bndboxes = tf.gather_nd(bndboxes, argmax_overlaps_inds)
     chose_bndboxes = tf.reshape(chose_bndboxes, [batch_size, -1, 4])
     regression_per_anchor = bbox_transform(anchors, chose_bndboxes)
-    
-    # Generate extra label to add the state of the label. 
+
+    # Generate extra label to add the state of the label.
     # (It should be ignored?)
     indices = tf.cast(positive_indices, tf.float32)
     indices = tf.where(ignore_indices, -1., indices)
@@ -213,7 +215,7 @@ def compute_gt_annotations(anchors: tf.Tensor,
                            positive_overlap: float = 0.5):
     """ 
     Obtain indices of gt annotations with the greatest overlap.
-    
+
     Parameters
     ----------
     anchors: tf.Tensor
@@ -246,8 +248,8 @@ def compute_gt_annotations(anchors: tf.Tensor,
     overlaps = bbox_overlap(anchors, annotations)
     argmax_overlaps_inds = tf.argmax(overlaps, axis=-1, output_type=tf.int32)
     max_overlaps = tf.reduce_max(overlaps, axis=-1)
-    
-    # Generate index like [batch_idx, max_overlap]	
+
+    # Generate index like [batch_idx, max_overlap]
     batched_indices = tf.ones([batch_size, n_anchors], dtype=tf.int32)
     batched_indices = tf.multiply(tf.expand_dims(tf.range(batch_size), -1),
                                   batched_indices)
@@ -255,12 +257,12 @@ def compute_gt_annotations(anchors: tf.Tensor,
     argmax_inds = tf.reshape(argmax_overlaps_inds, [-1, 1])
     batched_indices = tf.concat([batched_indices, argmax_inds], -1)
 
-    # Assign positive indices. 
+    # Assign positive indices.
     positive_indices = tf.greater_equal(max_overlaps, positive_overlap)
-    
+
     # Assign ignored boxes
     ignore_indices = tf.greater(max_overlaps, negative_overlap)
-    ignore_indices = tf.logical_and(ignore_indices, 
+    ignore_indices = tf.logical_and(ignore_indices,
                                     tf.logical_not(positive_indices))
     ignore_indices = tf.logical_or(ignore_indices, tf.less(max_overlaps, 0.))
 
@@ -287,10 +289,39 @@ def bbox_transform(anchors: tf.Tensor, gt_boxes: tf.Tensor) -> tf.Tensor:
     ty = (Gy - Py) / Ph
     tw = tf.math.log(Gw / Pw)
     th = tf.math.log(Gh / Ph)
-    
+
     targets = tf.stack([tx, ty, tw, th], axis=-1)
-    
+
     return targets
+
+
+def decode_box_outputs(pred_boxes, anchor_boxes):
+    """Transforms relative regression coordinates to absolute positions.
+    Network predictions are normalized and relative to a given anchor; this
+    reverses the transformation and outputs absolute coordinates for the input
+    image.
+    Args:
+        pred_boxes: predicted box regression targets.
+        anchor_boxes: anchors on all feature levels.
+    Returns:
+        outputs: bounding boxes.
+    """
+    anchor_boxes = tf.cast(anchor_boxes, pred_boxes.dtype)
+    ycenter_a = (anchor_boxes[..., 0] + anchor_boxes[..., 2]) / 2
+    xcenter_a = (anchor_boxes[..., 1] + anchor_boxes[..., 3]) / 2
+    wa = anchor_boxes[..., 2] - anchor_boxes[..., 0]
+    ha = anchor_boxes[..., 3] - anchor_boxes[..., 1]
+    tx, ty, tw, th = tf.unstack(pred_boxes, num=4, axis=-1)
+
+    w = tf.math.exp(tw) * wa
+    h = tf.math.exp(th) * ha
+    ycenter = ty * ha + ycenter_a
+    xcenter = tx * wa + xcenter_a
+    ymin = ycenter - h / 2.
+    xmin = xcenter - w / 2.
+    ymax = ycenter + h / 2.
+    xmax = xcenter + w / 2.
+    return tf.stack([xmin, ymin, xmax, ymax], axis=-1)
 
 
 def bbox_overlap(boxes: tf.Tensor, gt_boxes: tf.Tensor) -> tf.Tensor:
@@ -298,7 +329,7 @@ def bbox_overlap(boxes: tf.Tensor, gt_boxes: tf.Tensor) -> tf.Tensor:
     Calculates the overlap between proposal and ground truth boxes.
     Some `gt_boxes` may have been padded. The returned `iou` tensor for these
     boxes will be -1.
-    
+
     Parameters
     ----------
     boxes: tf.Tensor with a shape of [batch_size, N, 4]. 
@@ -306,7 +337,7 @@ def bbox_overlap(boxes: tf.Tensor, gt_boxes: tf.Tensor) -> tf.Tensor:
         last dimension is the pixel coordinates in [xmin, ymin, xmax, ymax] form.
     gt_boxes: tf.Tensor with a shape of [batch_size, MAX_NUM_INSTANCES, 4]. 
         This tensor might have paddings with a negative value.
-    
+
     Returns
     -------
     tf.FloatTensor 
@@ -322,13 +353,13 @@ def bbox_overlap(boxes: tf.Tensor, gt_boxes: tf.Tensor) -> tf.Tensor:
     i_xmax = tf.math.minimum(bb_x_max, tf.transpose(gt_x_max, [0, 2, 1]))
     i_ymin = tf.math.maximum(bb_y_min, tf.transpose(gt_y_min, [0, 2, 1]))
     i_ymax = tf.math.minimum(bb_y_max, tf.transpose(gt_y_max, [0, 2, 1]))
-    i_area = (tf.math.maximum(i_xmax - i_xmin, 0) * 
+    i_area = (tf.math.maximum(i_xmax - i_xmin, 0) *
               tf.math.maximum(i_ymax - i_ymin, 0))
 
     # Calculates the union area.
     bb_area = (bb_y_max - bb_y_min) * (bb_x_max - bb_x_min)
     gt_area = (gt_y_max - gt_y_min) * (gt_x_max - gt_x_min)
-    
+
     # Adds a small epsilon to avoid divide-by-zero.
     u_area = bb_area + tf.transpose(gt_area, [0, 2, 1]) - i_area + 1e-8
 

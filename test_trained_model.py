@@ -44,7 +44,9 @@ def test(image_path, model, configs):
         axis=0) # (1, 512, 512, 3)
     pred_box, pred_cls = model(image, training=False)
     labels, boxes, scores = FilterDetections(
-        configs, Configs.score_threshold)(images=image,
+        configs, 
+        Configs.score_threshold)(
+            images=image,
             regressors=pred_box,
             class_scores=pred_cls)
     labels = [list(configs.labels.keys())[int(l)] 

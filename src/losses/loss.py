@@ -3,9 +3,10 @@ import tensorflow as tf
 
 import tensorflow_addons as tfa
 
-from src.utils.training_utils import PseudoLabelObjectDetection
+from src.utils import training_utils, anchors
+from src.losses import iou_utils
 
-
+@tf.function
 class FocalLoss(tf.keras.losses.Loss):
     def __init__(self, alpha: float = 0.25, gamma: float = 1.5) -> None:
         super(FocalLoss, self).__init__()
@@ -14,7 +15,7 @@ class FocalLoss(tf.keras.losses.Loss):
         self.loss_fn = tfa.losses.SigmoidFocalCrossEntropy(
             alpha=self.alpha, gamma=self.gamma,
             reduction=tf.losses.Reduction.SUM)
-        
+
     def call(self, y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
         anchors_states = y_true[:, :, -1]
         labels = y_true[:, :, :-1]
@@ -31,14 +32,14 @@ class FocalLoss(tf.keras.losses.Loss):
 
         return tf.divide(self.loss_fn(y_true, y_pred), normalizer)
 
-
+@tf.function
 class HuberLoss(tf.keras.losses.Loss):
     def __init__(self, delta: float = 1.) -> None:
         super(HuberLoss, self).__init__()
         self.delta = delta
 
         self.loss_fn = tf.losses.Huber(
-            reduction=tf.losses.Reduction.SUM, 
+            reduction=tf.losses.Reduction.SUM,
             delta=self.delta)
 
     def call(self, y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
@@ -58,17 +59,45 @@ class HuberLoss(tf.keras.losses.Loss):
         return 50. * tf.divide(self.loss_fn(y_true, y_pred), normalizer)
 
 
+class BoxIouLoss(tf.keras.losses.Loss):
+    """Box iou loss."""
+
+    def __init__(self, iou_loss_type, anchors, **kwargs):
+        super().__init__(**kwargs)
+        self.iou_loss_type = iou_loss_type
+        self.anchors = anchors
+
+    def call(self, y_true, y_pred):
+        anchors_states = y_true[:, :, -1]
+        labels = y_true[:, :, :-1]
+
+        true_idx = tf.where(tf.equal(anchors_states, 1.))
+
+        normalizer = tf.shape(true_idx)[0]
+        normalizer = tf.cast(normalizer, tf.float32)
+        normalizer = tf.maximum(tf.constant(1., dtype=tf.float32), normalizer)
+        normalizer = tf.multiply(normalizer, tf.constant(4., dtype=tf.float32))
+
+        y_true = tf.gather_nd(labels, true_idx)
+        y_pred = tf.gather_nd(y_pred, true_idx)
+
+        box_iou_loss = iou_utils.iou_loss(y_true, y_pred,
+                                          self.iou_loss_type)
+        box_iou_loss = tf.reduce_sum(box_iou_loss) / normalizer
+        return box_iou_loss
+
+
 class UDA(tf.keras.losses.Loss):
     """UDA Loss Function."""
+
     def __init__(self, configs: object = None):
         super(UDA, self).__init__()
         self.configs = configs
-        self.convert_to_labels = PseudoLabelObjectDetection(configs)
+        self.convert_to_labels = training_utils.PseudoLabelObjectDetection(configs)
 
         self.focal_loss = FocalLoss()
         self.huber_loss = HuberLoss()
         self.consistency_loss = tf.keras.losses.KLDivergence()
-
 
     def __call__(self, y_true: tf.Tensor, y_pred: tf.Tensor):
         labels = y_true
@@ -81,15 +110,18 @@ class UDA(tf.keras.losses.Loss):
             [self.configs.batch_size,
                 self.configs.unlabeled_batch_size,
                 self.configs.unlabeled_batch_size],
-            axis = 0)
+            axis=0)
         # Step 1: Loss for Labeled Values
         labeled_cls_loss = self.focal_loss(labels["l"][0], logits["l"][0])
         labeled_obd_loss = self.huber_loss(labels["l"][1], logits["l"][1])
         loss["l"] = tf.reduce_sum([labeled_cls_loss, labeled_obd_loss])
         # Step 2: Loss for unlabeled values
-        labels["u_ori"] = self.convert_to_labels(logits["u_ori"]) # Applies NMS, anchors
+        labels["u_ori"] = self.convert_to_labels(
+            logits["u_ori"])  # Applies NMS, anchors
         # Consistency loss between unlabeled values
-        unlabeled_cls_loss = self.consistency_loss(labels["u_ori"][0], logits["u_aug"][0])
-        unlabeled_obd_loss = self.consistency_loss(labels["u_ori"][1], logits["u_aug"][1])
+        unlabeled_cls_loss = self.consistency_loss(
+            labels["u_ori"][0], logits["u_aug"][0])
+        unlabeled_obd_loss = self.consistency_loss(
+            labels["u_ori"][1], logits["u_aug"][1])
         loss["u"] = tf.reduce_sum([unlabeled_cls_loss, unlabeled_obd_loss])
         return logits, labels, masks, loss

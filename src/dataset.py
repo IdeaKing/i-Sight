@@ -17,6 +17,7 @@ from src.utils.bndbox import normalize_bndboxes, scale_bndboxes
 class Dataset():
     def __init__(self, file_names, configs, dataset_type):
         self.file_names = file_names
+        self.augment_ds = False
         self.configs = configs
         self.image_dims = configs.image_dims
         self.dataset_type = dataset_type
@@ -45,18 +46,25 @@ class Dataset():
         return image
 
 
-    def augment(self, image, label, bbx):
+    def augment(self, image, label, bbx, augment=True):
         """For augmenting images and bboxes."""
         # Read and preprocess the image
         image, label, bbx = (image.numpy(), label.numpy().tolist(), bbx.numpy().tolist())
         # Augmentation function
-        transform = A.Compose(
-            [A.Flip(p=0.5),
-             A.Rotate(p=0.5),
-             A.RandomBrightnessContrast(p=0.2)],
-             bbox_params=A.BboxParams(
-                 format="pascal_voc", 
-                 label_fields=["class_labels"]))
+        if augment:
+            transform = A.Compose(
+                [A.Flip(p=0.5),
+                A.Rotate(p=0.5),
+                A.RandomBrightnessContrast(p=0.2)],
+                bbox_params=A.BboxParams(
+                    format="pascal_voc", 
+                    label_fields=["class_labels"]))
+        else:
+            transform = A.Compose(
+                [],
+                bbox_params=A.BboxParams(
+                    format="pascal_voc", 
+                    label_fields=["class_labels"]))
         aug = transform(
             image=image,
             bboxes=bbx,
@@ -174,13 +182,22 @@ class Dataset():
             num_parallel_calls=tf.data.experimental.AUTOTUNE,
             name="bbox_map_ds")
         ds = tf.data.Dataset.zip((l_image_ds, l_label_ds))
-        ds = ds.map(
-            lambda x, y: tf.py_function(
-                self.augment,
-                inp=[x, *y],
-                Tout=[tf.float32, tf.int32, tf.float32]),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE,
-            name="augment_ds")
+        if self.augment_ds:
+            ds = ds.map(
+                lambda x, y: tf.py_function(
+                    self.augment,
+                    inp=[x, *y],
+                    Tout=[tf.float32, tf.int32, tf.float32]),
+                num_parallel_calls=tf.data.experimental.AUTOTUNE,
+                name="augment_ds")
+        else:
+            ds = ds.map(
+                lambda x, y: tf.py_function(
+                    self.augment,
+                    inp=[x, *y, False],
+                    Tout=[tf.float32, tf.int32, tf.float32]),
+                num_parallel_calls=tf.data.experimental.AUTOTUNE,
+                name="none_augment_ds")
         ds = ds.shuffle(self.configs.shuffle_size)
         ds = ds.padded_batch(batch_size=self.configs.batch_size,
                              padded_shapes=((*self.configs.image_dims, 3), (None,), (None, 4)),
