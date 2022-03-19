@@ -10,7 +10,7 @@ from src.losses.loss import EffDetLoss
 MIXED_PRECISION = False
 
 if __name__=="__main__":
-    
+    tf.keras.backend.clear_session()
     if MIXED_PRECISION:
         tf.keras.mixed_precision.set_global_policy("mixed_float16")
 
@@ -27,7 +27,7 @@ if __name__=="__main__":
         dataset_type="labeled").create_dataset()
 
     # Training configurations
-    EPOCHS = 10
+    EPOCHS = 300
     STEPS_PER_EPOCH = int(len(file_names) / configs.batch_size)
     TOTAL_STEPS = STEPS_PER_EPOCH * EPOCHS
 
@@ -35,9 +35,8 @@ if __name__=="__main__":
         initial_learning_rate=1e-4,
         decay_steps=TOTAL_STEPS,
         decay_rate=0.96)
-    optimizer = tf.keras.optimizers.SGD(
-        learning_rate=lr_schedule,
-        momentum=0.9)
+    optimizer = tf.keras.optimizers.Adam(
+        learning_rate=lr_schedule)
     if MIXED_PRECISION:
         optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
 
