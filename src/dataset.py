@@ -8,10 +8,9 @@ import cv2
 import numpy as np
 import tensorflow as tf
 import albumentations as A
-import matplotlib.pyplot as plt
 
-from src.utils.label_utils import _generate_anchors, _compute_gt
-from src.utils.bndbox import normalize_bndboxes, scale_bndboxes
+from src.utils.anchors import Encoder
+from src.utils import label_utils 
 
 # The full tf.data pipline
 class Dataset():
@@ -21,9 +20,7 @@ class Dataset():
         self.configs = configs
         self.image_dims = configs.image_dims
         self.dataset_type = dataset_type
-        self.anchors = _generate_anchors(
-            configs, self.image_dims[0])
-
+        self.encoder = Encoder()
 
     def parse_augment_image(self, file_name):
         """For augmenting images and bboxes."""
@@ -112,27 +109,27 @@ class Dataset():
         # truth boxes and its respective label
 
         root = ET.parse(path_to_label).getroot()
-        image_size = (int(root.findtext('size/height')),
-                    int(root.findtext('size/width')))  
-        boxes = root.findall('object')
+        image_size = (int(root.findtext("size/width")),
+                    int(root.findtext("size/height")))  
+        boxes = root.findall("object")
         bbx = []
         labels = []
 
         for b in boxes:
-            bb = b.find('bndbox')
-            bb = (int(bb.findtext('xmin')),
-                int(bb.findtext('ymin')),
-                int(bb.findtext('xmax')),
-                int(bb.findtext('ymax')))
+            bb = b.find("bndbox")
+            bb = (int(bb.findtext("xmin")),
+                int(bb.findtext("ymin")),
+                int(bb.findtext("xmax")),
+                int(bb.findtext("ymax")))
             bbx.append(bb)
             labels.append(
-                int(self.configs.labels[b.findtext('name')]))
+                int(self.configs.labels[b.findtext("name")]))
 
         bbx = tf.stack(bbx)
         # bbx are in relative mode
-        bbx = normalize_bndboxes(bbx, image_size) 
+        bbx = label_utils.to_relative(bbx, image_size) 
         # Scale bbx to input image dims
-        bbx = scale_bndboxes(bbx, self.configs.image_dims)
+        bbx = label_utils.to_scale(bbx, self.configs.image_dims)
         return labels, bbx
 
 
@@ -202,6 +199,9 @@ class Dataset():
         ds = ds.padded_batch(batch_size=self.configs.batch_size,
                              padded_shapes=((*self.configs.image_dims, 3), (None,), (None, 4)),
                              padding_values=(0., -1, -1.))
+        ds = ds.map(
+            map_func=self.encoder.encode_batch, 
+            num_parallel_calls=tf.data.experimental.AUTOTUNE)
         return ds
 
 def load_data(configs, dataset_type = "labeled"):
@@ -210,20 +210,20 @@ def load_data(configs, dataset_type = "labeled"):
     if dataset_type == "labeled":
         with open(
             os.path.join(
-                configs.dataset_path, 'labeled_train.txt')) as reader:
+                configs.dataset_path, "labeled_train.txt")) as reader:
             for line in reader.readlines():
-                file_names.append(line.rstrip().split(' ')[0])
+                file_names.append(line.rstrip().split(" ")[0])
     elif dataset_type == "unlabeled":
         with open(
             os.path.join(
-                configs.dataset_path, 'unlabeled_train.txt')) as reader:
+                configs.dataset_path, "unlabeled_train.txt")) as reader:
             for line in reader.readlines():
-                file_names.append(line.rstrip().split(' ')[0])
+                file_names.append(line.rstrip().split(" ")[0])
     elif dataset_type == "student":
         with open(
             os.path.join(
-                configs.dataset_path, 'student_train.txt')) as reader:
+                configs.dataset_path, "student_train.txt")) as reader:
             for line in reader.readlines():
-                file_names.append(line.rstrip().split(' ')[0])
+                file_names.append(line.rstrip().split(" ")[0])
     random.shuffle(file_names)
     return file_names

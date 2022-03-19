@@ -1,35 +1,84 @@
-import numpy as np
+"""Implementation of utility functions."""
+
 import tensorflow as tf
 
-from src.utils.anchors import anchor_targets_bbox, AnchorGenerator
+
+@tf.autograph.experimental.do_not_convert
+def to_xywh(bbox):
+    """Convert [x_min, y_min, x_max, y_max] to [x, y, width, height]."""
+    return tf.concat(
+        [(bbox[..., :2] + bbox[..., 2:]) / 2.0, (bbox[..., 2:] - bbox[..., :2])], axis=-1
+    )
 
 
-def _compute_gt(images, 
-                ground_truth, 
-                anchors, 
-                num_classes):
-
-    labels = ground_truth[0]
-    boxes = ground_truth[1]
-
-    target_clf, target_reg = anchor_targets_bbox(
-            anchors, images, boxes, labels, num_classes)
-
-    return target_clf, target_reg
+@tf.autograph.experimental.do_not_convert
+def to_corners(bbox):
+    """Convert [x, y, width, height] to [x_min, y_min, x_max, y_max]."""
+    return tf.concat(
+        [bbox[..., :2] - bbox[..., 2:] / 2.0, bbox[..., :2] + bbox[..., 2:] / 2.0], axis=-1
+    )
 
 
-def _generate_anchors(configs,
-                      im_shape) -> tf.Tensor:
+@tf.autograph.experimental.do_not_convert
+def to_relative(bbox, image_dims):
+    """Convert pixel wise ground truth labels to relative ground truth."""
+    (width, height) = image_dims
+    x1, y1, x2, y2 = tf.split(bbox, 4, axis=1)
+    x1 /= (width)
+    x2 /= (width)
+    y1 /= (height)
+    y2 /= (height)
+    return tf.concat([x1, y1, x2, y2], axis=1)
 
-    anchors_gen = [AnchorGenerator(
-            size=configs.sizes[i - 3],
-            aspect_ratios=configs.ratios,
-            stride=configs.downsampling_strides[i - 3]) 
-            for i in range(3, 8)]
 
-    shapes = [im_shape // (2 ** x) for x in range(3, 8)]
+@tf.autograph.experimental.do_not_convert
+def match_anchors(boxes, anchor_boxes):
+    box_variance = tf.cast(
+        [0.1, 0.1, 0.2, 0.2], tf.float32)
+    boxes = boxes * box_variance
+    boxes = tf.concat(
+        [boxes[..., :2] * anchor_boxes[..., 2:] + anchor_boxes[..., :2],
+         tf.exp(boxes[..., 2:]) * anchor_boxes[..., 2:]],
+        axis=-1)
+    boxes = to_corners(boxes)
+    return boxes
 
-    anchors = [g((size, size, 3))
-               for g, size in zip(anchors_gen, shapes)]
 
-    return tf.concat(anchors, axis=0)
+@tf.autograph.experimental.do_not_convert
+def to_scale(bbox, image_dims):
+    """Convert pixel wise ground truth labels to relative ground truth."""
+    (width, height) = image_dims
+    x1, y1, x2, y2 = tf.split(bbox, 4, axis=1)
+    x1 *= (width)
+    x2 *= (width)
+    y1 *= (height)
+    y2 *= (height)
+    return tf.concat([x1, y1, x2, y2], axis=1)
+
+
+@tf.autograph.experimental.do_not_convert
+def compute_iou(boxes_1, boxes_2):
+    """Compute intersection over union.
+    Args:
+        boxes_1: a tensor with shape (N, 4) representing bounding boxes
+            where each box is of the format [x, y, width, height].
+        boxes_2: a tensor with shape (M, 4) representing bounding boxes
+            where each box is of the format [x, y, width, height].
+    Returns:
+        IOU matrix with shape (N, M).
+    """
+
+    boxes_1_corners = to_corners(boxes_1)
+    boxes_2_corners = to_corners(boxes_2)
+
+    left_upper = tf.maximum(boxes_1_corners[..., None, :2], boxes_2_corners[..., :2])
+    right_lower = tf.minimum(boxes_1_corners[..., None, 2:], boxes_2_corners[..., 2:])
+    diff = tf.maximum(0.0, right_lower - left_upper)
+    intersection = diff[..., 0] * diff[..., 1]
+
+    boxes_1_area = boxes_1[..., 2] * boxes_1[..., 3]
+    boxes_2_area = boxes_2[..., 2] * boxes_2[..., 3]
+    union = boxes_1_area[..., None] + boxes_2_area - intersection
+
+    iou = intersection / union
+    return tf.clip_by_value(iou, 0.0, 1.0)

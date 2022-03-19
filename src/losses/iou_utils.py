@@ -141,9 +141,9 @@ def iou_loss(pred_boxes: FloatType,
       predicted box respectively.
     The returned loss is computed as 1 - one of {IoU, GIoU, DIoU, CIoU}.
     Args:
-      pred_boxes: predicted boxes, with coordinate [y_min, x_min, y_max, x_max]*.
+      pred_boxes: predicted boxes, with coordinate [x_min, y_min, x_max, y_max]*.
         It can be multiple anchors, with each anchor box has four coordinates.
-      target_boxes: target boxes, with coordinate [y_min, x_min, y_max, x_max]*.
+      target_boxes: target boxes, with coordinate [x_min, y_min, x_max, y_max]*.
         It can be multiple anchors, with each anchor box has four coordinates.
       iou_type: one of ['iou', 'ciou', 'diou', 'giou'].
     Returns:

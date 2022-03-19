@@ -6,34 +6,35 @@ import numpy as np
 import tensorflow as tf
 
 from src.utils.postprocess import FilterDetections
-from src.utils.label_utils import _generate_anchors, _compute_gt
+from src.utils import anchors
 
 
-def object_detection_optimizer(configs):
-    teacher_optimizer=tf.keras.optimizers.Adam(
-        learning_rate=configs.teacher_learning_rate)
+def object_detection_optimizer(teacher_learning_rate, tutor_learning_rate, student_learning_rate):
+    teacher_optimizer = tf.keras.optimizers.Adam(
+        learning_rate=teacher_learning_rate)
     tutor_optimizer = tf.keras.optimizers.Adam(
-        learning_rate=configs.tutor_learning_rate)
+        learning_rate=tutor_learning_rate)
     student_optimizer = tf.keras.optimizers.Adam(
-        learning_rate=configs.student_learning_rate)
+        learning_rate=student_learning_rate)
 
     return teacher_optimizer, tutor_optimizer, student_optimizer
 
 
-def save_labels_to_xml(configs, labels, path):
+def save_labels_to_xml(dataset_dir, image_dims, labels, path):
     """Saves the labels created by model into xml labels."""
     # Add meta data to the xml file
     with open(path, 'w') as f:
         f.write('<annotation>\n')
-        f.write('\t<folder>'+ str(configs.dataset_dir) + '</folder>\n')
-        f.write('\t<filename>' + os.path.basename(path)[:-4] + ".jpg" + '</filename>\n')
+        f.write('\t<folder>' + str(dataset_dir) + '</folder>\n')
+        f.write('\t<filename>' + os.path.basename(path)
+                [:-4] + ".jpg" + '</filename>\n')
         f.write('\t<path>' + path[:-4] + ".jpg" + '</path>\n')
         f.write('\t<source>\n')
         f.write('\t\t<database>AMPL-Thomas-Chia-2022</database>\n')
         f.write('\t</source>\n')
         f.write('\t<size>\n')
-        f.write('\t\t<width>' + str(configs.image_dims[0]) + '</width>\n')
-        f.write('\t\t<height>' + str(configs.image_dims[1]) + '</height>\n')
+        f.write('\t\t<width>' + str(image_dims[0]) + '</width>\n')
+        f.write('\t\t<height>' + str(image_dims[1]) + '</height>\n')
         f.write('\t\t<depth>3</depth>\n')
         f.write('\t</size>\n')
         f.write('\t<segmented>0</segmented>\n')
@@ -41,7 +42,7 @@ def save_labels_to_xml(configs, labels, path):
         for label in labels:
             xmin, ymin, xmax, ymax, id = label
             # Convert the id number into object names
-            object_name = list(configs.labels.keys()).index(id)
+            object_name = list(labels.keys()).index(id)
             # Write each coordinate and class to the file
             f.write('\t<object>\n')
             f.write('\t\t<name>' + object_name + '</name>\n')
@@ -57,7 +58,7 @@ def save_labels_to_xml(configs, labels, path):
             f.write('\t</object>\n')
         # Close the annotation tag once all the objects have been written to the file
         f.write('</annotation>\n')
-        f.close() # Close the file
+        f.close()  # Close the file
 
 
 def read_files(file_name):
@@ -81,18 +82,18 @@ def parse_label_file(path_to_label_file):
     return label_dict
 
 
-def model_weights(model_type, configs):
+def model_weights(model_type, training_directory):
     """Return directory to the model weights."""
     if model_type == "teacher":
-        work_dir = configs.training_directory
+        work_dir = training_directory
         model_weights_dir = os.path.join(work_dir, "teacher")
         return model_weights_dir
     elif model_type == "student":
-        work_dir = configs.training_directory
+        work_dir = training_directory
         model_weights_dir = os.path.join(work_dir, "student")
         return model_weights_dir
     else:
-        work_dir = configs.training_directory
+        work_dir = training_directory
         model_weights_dir = os.path.join(work_dir, "ema")
         return model_weights_dir
 
@@ -100,7 +101,8 @@ def model_weights(model_type, configs):
 def update_ema_weights(train_config, ema_model, student_model, step):
     """Update according to ema and return new weights."""
     ema_step = float(step - train_config.ema_start)
-    decay = 1.0 - min(train_config.ema_decay, (ema_step + 1.0) / (ema_step + 10.0))
+    decay = 1.0 - min(train_config.ema_decay,
+                      (ema_step + 1.0) / (ema_step + 10.0))
     decay = 1.0 if step < train_config.ema_start else decay
     new_weights = []
     for curr, new in zip(ema_model.get_weights(), student_model.get_weights()):
@@ -109,11 +111,11 @@ def update_ema_weights(train_config, ema_model, student_model, step):
 
 
 def learning_rate(
-    global_step, 
-    learning_rate_base, 
-    total_steps, 
-    num_warmup_steps=0, 
-    num_wait_steps=0):
+        global_step,
+        learning_rate_base,
+        total_steps,
+        num_warmup_steps=0,
+        num_wait_steps=0):
     """Get learning rate."""
     if global_step < num_wait_steps:
         return 1e-9
@@ -130,12 +132,12 @@ def learning_rate(
 
 
 def cosine_decay_with_warmup(
-    global_step,
-    learning_rate_base,
-    total_steps,
-    warmup_learning_rate=0.0,
-    warmup_steps=0,
-    hold_base_rate_steps=0):
+        global_step,
+        learning_rate_base,
+        total_steps,
+        warmup_learning_rate=0.0,
+        warmup_steps=0,
+        hold_base_rate_steps=0):
     """Cosine decay schedule with warm up period.
     Cosine annealing learning rate as described in:
       Loshchilov and Hutter, SGDR: Stochastic Gradient Descent with Warm Restarts.
@@ -160,7 +162,8 @@ def cosine_decay_with_warmup(
     """
 
     if total_steps < warmup_steps:
-        raise ValueError("total_steps must be larger or equal to " "warmup_steps.")
+        raise ValueError(
+            "total_steps must be larger or equal to " "warmup_steps.")
     learning_rate = (
         0.5
         * learning_rate_base
@@ -184,9 +187,11 @@ def cosine_decay_with_warmup(
             raise ValueError(
                 "learning_rate_base must be larger or equal to " "warmup_learning_rate."
             )
-        slope = (learning_rate_base - warmup_learning_rate) / float(warmup_steps)
+        slope = (learning_rate_base - warmup_learning_rate) / \
+            float(warmup_steps)
         warmup_rate = slope * float(global_step) + warmup_learning_rate
-        learning_rate = np.where(global_step < warmup_steps, warmup_rate, learning_rate)
+        learning_rate = np.where(
+            global_step < warmup_steps, warmup_rate, learning_rate)
     return np.where(global_step > total_steps, 0.0, learning_rate)
 
 
@@ -200,42 +205,38 @@ def update_tensorboard(losses, step):
 
 class PseudoLabelObjectDetection():
     """Change the logits into labels and into anchored labels for object detection.
-    :params configs: Configuration class
-    :params logits: The outputs from the model
+    :params unlabeled_batch_size(int): The unlabeled batch size
+    :params image_dims: The size of the input image for the model
     :returns: Pseudo-labels for object detection models
     """
-    def __init__(self, configs: object) -> None:
-        self.configs = configs
-        self.postprocess = FilterDetections(configs, configs.score_threshold)
-        self.anchors = _generate_anchors(
-            configs, 
-            configs.image_dims[0])
 
-    
+    def __init__(self, unlabeled_batch_size, image_dims) -> None:
+        self.unlabeled_batch_size = unlabeled_batch_size
+        self.image_dims = image_dims
+        self.postprocess = FilterDetections()
+        self.anchors = anchors.Anchors()
+        self.encoder = anchors.Encoder()
+
     def __call__(self, logits):
-        batched_anchored_cls = []
-        batched_anchored_bbx = []
         pl_images = tf.zeros(
-            (self.configs.unlabeled_batch_size, 
-             *self.configs.image_dims, 
+            (self.unlabeled_batch_size,
+             *self.image_dims,
              3),
             dtype=tf.float32)
 
         logits_cls, logits_bbx = logits[0], logits[1]
 
+        # Applies NMS
         pl_cls, pl_bbx, _ = self.postprocess(
             images=pl_images,
             regressors=logits_bbx,
             class_scores=logits_cls)
 
-        for cls, bbx in zip(pl_cls, pl_bbx):
-            anchored_cls, anchored_bbx = _compute_gt(
-                images=tf.zeros(self.configs.batch_size, *self.configs.image_dims, 3),
-                ground_truth=(cls, bbx),
-                anchors=self.anchors,
-                num_classes=self.configs.num_classes)
-            batched_anchored_cls.append(anchored_cls)
-            batched_anchored_bbx.append(anchored_bbx)
+        # Applies anchors
+        batched_anchored_cls, batched_anchored_bbx, _ = self.encoder.encode_batch(
+            images=pl_images,
+            classes=pl_cls,
+            gt_boxes=pl_bbx)
 
-        return (tf.constant(batched_anchored_cls, dtype=tf.int32), 
+        return (tf.constant(batched_anchored_cls, dtype=tf.int32),
                 tf.constant(batched_anchored_bbx, dtype=tf.float32))

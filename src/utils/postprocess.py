@@ -1,95 +1,83 @@
-
 import numpy as np
 import tensorflow as tf
 
+from typing import Tuple
 from PIL import Image
 
-from src.utils.bndbox import (regress_bndboxes, clip_boxes, nms)
-from src.utils.anchors import (AnchorGenerator)
-
-
-def _image_to_pil(image):
-
-    if isinstance(image, Image.Image):
-        return image
-    elif isinstance(image, tf.Tensor):
-        image = image.numpy()
-    
-    if image.dtype == 'float32' or image.dtype == 'float64':
-        image = (image * 255.).astype('uint8')
-    elif image.dtype != 'uint8':
-        print(image.dtype)
-        raise ValueError('Image dtype not supported')
-
-    return Image.fromarray(image)
-
-
-def _parse_box(box):
-    if isinstance(box, tf.Tensor):
-        return tuple(box.numpy().astype('int32').tolist())
-    elif isinstance(box, np.ndarray):
-        return tuple(box.astype('int32').tolist())
-    else:
-        return tuple(map(int, box))
-
-
-def _parse_boxes(boxes):
-    if isinstance(boxes, tf.Tensor):
-        boxes = boxes.numpy().astype('int32').tolist()
-    elif isinstance(boxes, np.ndarray):
-        boxes = boxes.astype('int32').tolist()
-    print(boxes)
-    return [_parse_box(b) for b in boxes]
+from src.utils import anchors
+from src.utils import label_utils
 
 
 class FilterDetections:
 
-    def __init__(self, 
-                 anchors_config,
-                 score_threshold: float):
+    def __init__(self,
+                 score_threshold: float = 0.3,
+                 image_shape: Tuple[int, int] = (512, 512),
+                 from_logits: bool = False,
+                 max_boxes: int = 150,
+                 max_size: int = 100,
+                 iou_threshold: int = 0.7):
 
         self.score_threshold = score_threshold
-        self.anchors_gen = [AnchorGenerator(
-            size=anchors_config.sizes[i - 3],
-            aspect_ratios=anchors_config.ratios,
-            stride=anchors_config.downsampling_strides[i - 3]
-        ) for i in range(3, 8)] # 3 to 7 pyramid levels
+        self.image_shape = image_shape
+        self.from_logits = from_logits
+        self.max_boxes = max_boxes
+        self.max_size = max_size
+        self.iou_threshold = iou_threshold
+        self.score_threshold = score_threshold
 
-        # Accelerate calls
-        self.regress_boxes = tf.function(
-            regress_bndboxes, input_signature=[
-                tf.TensorSpec(shape=[None, None, 4], dtype=tf.float32),
-                tf.TensorSpec(shape=[None, None, 4], dtype=tf.float32)])
+        self.anchors = anchors.Anchors().get_anchors(
+            image_height=image_shape[0],
+            image_width=image_shape[1])
 
-        self.clip_boxes = tf.function(
-            clip_boxes, input_signature=[
-                tf.TensorSpec(shape=[None, None, 4], dtype=tf.float32),
-                tf.TensorSpec(shape=None)])
-    
-    def __call__(self, 
-                 images: tf.Tensor, 
-                 regressors: tf.Tensor, 
-                 class_scores: tf.Tensor):
+    def __call__(self,
+                 labels: tf.Tensor,
+                 bboxes: tf.Tensor):
 
-        im_shape = tf.shape(images)
-        batch_size, h, w = im_shape[0], im_shape[1], im_shape[2]
+        if self.from_logits:
+            pred_labels = []
+            pred_bboxes = []
+            pred_scores = []
 
-        # Create the anchors
-        shapes = [w // (2 ** x) for x in range(3, 8)]
-        anchors = [g((size, size, 3))
-                   for g, size in zip(self.anchors_gen, shapes)]
-        anchors = tf.concat(anchors, axis=0)
-        
-        # Tile anchors over batches, so they can be regressed
-        anchors = tf.tile(tf.expand_dims(anchors, 0), [batch_size, 1, 1])
+            # Loops from each batch
+            for label, boxes in zip(labels, boxes):
+                label = tf.nn.sigmoid(label)
+                boxes = label_utils.match_anchors(
+                    boxes=boxes,
+                    anchor_boxes=self.anchors)
+                nms = tf.image.combined_non_max_suppression(
+                    tf.expand_dims(boxes, axis=2),
+                    label,
+                    max_output_size_per_class=self.max_boxes,
+                    max_total_size=self.max_size,
+                    iou_threshold=self.iou_threshold,
+                    score_threshold=self.score_threshold,
+                    clip_boxes=False,
+                    name="Training-NMS")
 
-        # Regress anchors and clip in case they go outside of the image
-        boxes = self.regress_boxes(anchors, regressors)
-        boxes = self.clip_boxes(boxes, [h, w])
+                pred_labels.append(nms.nmsed_classes)
+                pred_bboxes.append(nms.nmsed_boxes)
+                pred_scores.append(nms.nmsed_scores)
 
-        # Suppress overlapping detections
-        boxes, labels, scores = nms(
-            boxes, class_scores, score_threshold=self.score_threshold)
+            return pred_labels, pred_bboxes, pred_scores
 
-        # TODO: Pad output
-        return labels, boxes, scores
+        else:
+            labels = tf.nn.sigmoid(labels)
+            bboxes = label_utils.match_anchors(
+                boxes=bboxes,
+                anchor_boxes=self.anchors)
+            nms = tf.image.combined_non_max_suppression(
+                tf.expand_dims(bboxes, axis=2),
+                labels,
+                max_output_size_per_class=self.max_boxes,
+                max_total_size=self.max_size,
+                iou_threshold=self.iou_threshold,
+                score_threshold=self.score_threshold,
+                clip_boxes=False,
+                name="Non-training-NMS")
+
+            labels = nms.nmsed_classes
+            bboxes = nms.nmsed_boxes
+            scores = nms.nmsed_scores
+
+            return labels, bboxes, scores

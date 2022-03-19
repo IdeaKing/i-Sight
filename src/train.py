@@ -15,6 +15,26 @@ import src.losses.uda_loss as uda_loss
 for handler in logging.root.handlers[:]:
     logging.root.removeHandler(handler)
 
+
+def train_sl(configs, lb_dataset):
+    """ Training pipeline for SL"""
+    # Deletes the old directory if not continuing training
+    if ((configs.transfer_learning is not True or
+        configs.transfer_learning == "imagenet") and
+        os.path.exists(configs.training_dir)):
+        input("Press Enter to delete the current directory and continue.")
+        shutil.rmtree(configs.training_dir)
+    # Makes the training directory if it does not exist
+    if not os.path.exists(configs.training_dir):
+        os.makedirs(configs.training_dir)  
+    # Initialize Tensorboard
+    tensorboard_dir = os.path.join(
+        configs.training_dir, "tensorboard")
+    if os.path.exists(tensorboard_dir) == False:
+        os.makedirs(tensorboard_dir)
+    tensorboard_file_writer = tf.summary.create_file_writer(tensorboard_dir)
+    tensorboard_file_writer.set_as_default()
+
 def train_ampl(configs, lb_dataset, ul_dataset):
     """ The training pipeline for AMPL.
     :params configs: Class containing configs.
