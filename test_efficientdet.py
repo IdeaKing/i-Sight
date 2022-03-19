@@ -35,9 +35,9 @@ if __name__=="__main__":
         initial_learning_rate=1e-4,
         decay_steps=TOTAL_STEPS,
         decay_rate=0.96)
-    optimizer = tfa.optimizers.AdamW(
+    optimizer = tf.keras.optimizers.SGD(
         learning_rate=lr_schedule,
-        weight_decay=4e-5)
+        momentum=0.9)
     if MIXED_PRECISION:
         optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
 
