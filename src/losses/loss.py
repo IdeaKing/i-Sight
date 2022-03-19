@@ -80,7 +80,7 @@ class EffDetLoss(tf.keras.losses.Loss):
                  gamma=1.5,
                  label_smoothing=0.1,
                  delta=1.0,
-                 include_iou=False,
+                 include_iou=None,
                  name='effdet_loss'):
         """Initialize Focal and Huber loss.
         Args:
@@ -91,7 +91,7 @@ class EffDetLoss(tf.keras.losses.Loss):
             label_smoothing: a float number of label smoothing intensity.
             delta: a float number representing a threshold in Huber loss
                 for choosing between linear and cubic loss.
-            include_iou: either false or "ciou", "diou", "iou", "giou"
+            include_iou: either None or "ciou", "diou", "iou", "giou"
         """
         super().__init__(name=name)
         self.class_loss = FocalLoss(
@@ -100,7 +100,7 @@ class EffDetLoss(tf.keras.losses.Loss):
         self.num_classes = num_classes
         self.include_iou = include_iou
 
-    @tf.autograph.experimental.do_not_convert
+    #@tf.autograph.experimental.do_not_convert
     def call(self, y_true, y_pred):
         """Calculate Focal and Huber losses for every anchor box.
         Args:
@@ -140,14 +140,14 @@ class EffDetLoss(tf.keras.losses.Loss):
         box_loss = tf.math.divide_no_nan(
             tf.reduce_sum(box_loss, axis=-1), normalizer)
 
-        if self.include_iou is False:
+        if self.include_iou is None:
             loss = clf_loss + box_loss
         else:
-            iou_loss = iou_utils.iou_loss(
+            iou = iou_utils.iou_loss(
                 pred_boxes=box_preds,
                 target_boxes=box_labels,
                 iou_type=self.include_iou)
-            loss = clf_loss + box_loss + iou_loss
+            loss = clf_loss + box_loss + iou
         return loss
 
 

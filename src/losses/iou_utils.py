@@ -159,6 +159,7 @@ def iou_loss(pred_boxes: FloatType,
     # t_ denotes target boxes and p_ denotes predicted boxes: (y, x, y_max, x_max)
     pred_boxes_list = tf.unstack(pred_boxes, None, axis=-1)
     target_boxes_list = tf.unstack(target_boxes, None, axis=-1)
+
     assert len(pred_boxes_list) == len(target_boxes_list)
     assert len(pred_boxes_list) % 4 == 0
 
@@ -177,6 +178,5 @@ def iou_loss(pred_boxes: FloatType,
         iou_loss_list.append(
             mask *
             (1 - tf.squeeze(_iou_per_anchor(pred_boxes, target_boxes, iou_type))))
-    if len(iou_loss_list) == 1:
-        return iou_loss_list[0]
-    return tf.reduce_sum(tf.stack(iou_loss_list), 0)
+    loss = tf.reduce_sum(tf.stack(iou_loss_list))
+    return loss

@@ -202,6 +202,7 @@ class Dataset():
         ds = ds.map(
             map_func=self.encoder.encode_batch, 
             num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
         return ds
 
 def load_data(configs, dataset_type = "labeled"):
