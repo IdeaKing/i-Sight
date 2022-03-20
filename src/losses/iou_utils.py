@@ -178,5 +178,5 @@ def iou_loss(pred_boxes: FloatType,
         iou_loss_list.append(
             mask *
             (1 - tf.squeeze(_iou_per_anchor(pred_boxes, target_boxes, iou_type))))
-    loss = tf.reduce_sum(tf.stack(iou_loss_list))
+    loss = tf.reduce_mean(tf.stack(iou_loss_list))
     return loss

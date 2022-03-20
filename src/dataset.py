@@ -20,7 +20,7 @@ class Dataset():
                  file_names: List,
                  dataset_path: str,
                  labels_dict: dict,
-                 batch_size: int = 8,
+                 batch_size: int = 4,
                  shuffle_size: int = 64,
                  images_dir: str = "images",
                  labels_dir: str = "labels",
