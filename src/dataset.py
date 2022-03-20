@@ -22,6 +22,7 @@ class Dataset():
         self.dataset_type = dataset_type
         self.encoder = Encoder()
 
+
     def parse_augment_image(self, file_name):
         """For augmenting images and bboxes."""
         # Read and preprocess the image
@@ -43,16 +44,16 @@ class Dataset():
         return image
 
 
-    def augment(self, image, label, bbx, augment=True):
+    def augment(self, image, label, bbx):
         """For augmenting images and bboxes."""
         # Read and preprocess the image
-        image, label, bbx = (image.numpy(), label.numpy().tolist(), bbx.numpy().tolist())
+        image, label, bbx = (image, label.tolist(), bbx.tolist())
         # Augmentation function
-        if augment:
+        if self.augment_ds:
             transform = A.Compose(
                 [A.Flip(p=0.5),
-                A.Rotate(p=0.5),
-                A.RandomBrightnessContrast(p=0.2)],
+                 A.Rotate(p=0.5),
+                 A.RandomBrightnessContrast(p=0.2)],
                 bbox_params=A.BboxParams(
                     format="pascal_voc", 
                     label_fields=["class_labels"]))
@@ -118,9 +119,9 @@ class Dataset():
         for b in boxes:
             bb = b.find("bndbox")
             bb = (int(bb.findtext("xmin")),
-                int(bb.findtext("ymin")),
-                int(bb.findtext("xmax")),
-                int(bb.findtext("ymax")))
+                  int(bb.findtext("ymin")),
+                  int(bb.findtext("xmax")),
+                  int(bb.findtext("ymax")))
             bbx.append(bb)
             labels.append(
                 int(self.configs.labels[b.findtext("name")]))
@@ -130,14 +131,17 @@ class Dataset():
         bbx = label_utils.to_relative(bbx, image_size) 
         # Scale bbx to input image dims
         bbx = label_utils.to_scale(bbx, self.configs.image_dims)
+        # print("to scale", bbx)
+        # bbx = label_utils.to_xywh(bbox = bbx)
+        # print("bbx", bbx)
         return labels, bbx
 
 
     def parse_process_image(self, file_name):
-        file_name = bytes.decode(file_name, encoding="utf-8")
+        # file_name = bytes.decode(file_name, encoding="utf-8")
         image = cv2.imread(file_name)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = self.fundus_preprocessing(image)
+        # image = self.fundus_preprocessing(image)
         image = image/255 # Normalize
         image = cv2.resize(image, self.image_dims)
         image = np.array(image, np.float32)
@@ -145,65 +149,49 @@ class Dataset():
     
 
     def parse_process_voc(self, file_name):
-        file_name = bytes.decode(file_name, encoding="utf-8")
+        # file_name = bytes.decode(file_name, encoding="utf-8")
         labels, bbx = self.parse_xml(file_name)
         labels = np.array(labels, np.int32)
         bbx = np.array(bbx, np.float32)
         return labels, bbx
 
 
+    def parse(self, file_name):
+        file_name = bytes.decode(file_name, encoding="utf-8")
+        image_file_path = os.path.join(
+            self.configs.dataset_path,
+            self.configs.images_dir,
+            file_name + ".jpg")
+        label_file_path = os.path.join(
+            self.configs.dataset_path,
+            self.configs.labels_dir,
+            file_name + ".xml")
+        image = self.parse_process_image(file_name=image_file_path)
+        label, bboxs = self.parse_process_voc(file_name=label_file_path)
+        image, label, bboxs = self.augment(image=image, label=label, bbx=bboxs)
+        bboxs = label_utils.to_xywh(bboxs)
+        image, label, bboxs = (np.array(image, np.float32), 
+                               np.array(label, np.int32), 
+                               np.array(bboxs, np.float32))
+        label, bboxs = self.encoder._encode_sample(
+            image_shape=self.configs.image_dims, 
+            gt_boxes=bboxs, 
+            classes=label)
+        return image, label, bboxs
+
+
     def create_dataset(self):
-        image_list_ds = tf.data.Dataset.from_tensor_slices([
-            os.path.join(
-                self.configs.dataset_path,
-                self.configs.images_dir,
-                file + ".jpg") for file in self.file_names])
-        label_list_ds = tf.data.Dataset.from_tensor_slices([
-            os.path.join(
-                self.configs.dataset_path,
-                self.configs.labels_dir,
-                file + ".xml") for file in self.file_names])
-        l_image_ds = image_list_ds.map(
+        list_ds = tf.data.Dataset.from_tensor_slices(self.file_names)
+        ds = list_ds.map(
             lambda x: tf.numpy_function(
-                self.parse_process_image,
+                self.parse,
                 inp=[x],
-                Tout=tf.float32,
-                name="l_parse_image"),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE,
-            name = "l_image_map_ds")
-        l_label_ds = label_list_ds.map(
-            lambda x: tf.numpy_function(
-                self.parse_process_voc,
-                inp=[x],
-                Tout=[tf.int32, tf.float32]),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE,
-            name="bbox_map_ds")
-        ds = tf.data.Dataset.zip((l_image_ds, l_label_ds))
-        if self.augment_ds:
-            ds = ds.map(
-                lambda x, y: tf.py_function(
-                    self.augment,
-                    inp=[x, *y],
-                    Tout=[tf.float32, tf.int32, tf.float32]),
-                num_parallel_calls=tf.data.experimental.AUTOTUNE,
-                name="augment_ds")
-        else:
-            ds = ds.map(
-                lambda x, y: tf.py_function(
-                    self.augment,
-                    inp=[x, *y, False],
-                    Tout=[tf.float32, tf.int32, tf.float32]),
-                num_parallel_calls=tf.data.experimental.AUTOTUNE,
-                name="none_augment_ds")
-        ds = ds.shuffle(self.configs.shuffle_size)
-        ds = ds.padded_batch(batch_size=self.configs.batch_size,
-                             padded_shapes=((*self.configs.image_dims, 3), (None,), (None, 4)),
-                             padding_values=(0., -1, -1.))
-        ds = ds.map(
-            map_func=self.encoder.encode_batch, 
+                Tout=[tf.float32, tf.float32, tf.float32]),
             num_parallel_calls=tf.data.experimental.AUTOTUNE)
-        ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
+        ds = ds.shuffle(self.configs.shuffle_size)
+        ds = ds.batch(self.configs.batch_size)
         return ds
+
 
 def load_data(configs, dataset_type = "labeled"):
     """Find the file paths for training and validation off of file."""

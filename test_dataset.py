@@ -1,7 +1,9 @@
+import numpy as np
 import tensorflow as tf
 
 import src.dataset as dataset
 import src.config as config
+import src.utils.postprocess as post
 
 if __name__=="__main__":
     configs = config.Configs(
@@ -15,7 +17,7 @@ if __name__=="__main__":
         file_names=file_names,
         configs=configs,
         dataset_type="labeled").create_dataset()
-
+    
     for image, label, bbs in labeled_dataset:
         print(f"Image shape: {image.numpy().shape}")
         print(f"Label shape: {label.numpy().shape}")
@@ -25,5 +27,3 @@ if __name__=="__main__":
         print(f"BBS {bbs}")
 
         break
-
-    

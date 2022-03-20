@@ -40,7 +40,9 @@ class FilterDetections:
             pred_scores = []
 
             # Loops from each batch
-            for label, boxes in zip(labels, boxes):
+            for label, boxes in zip(labels, bboxes):
+                print(label.numpy().shape)
+                print(boxes.numpy().shape)
                 label = tf.nn.sigmoid(label)
                 boxes = label_utils.match_anchors(
                     boxes=boxes,

@@ -126,7 +126,7 @@ class Encoder():
 
     def _encode_sample(self, image_shape, gt_boxes, classes):
         anchor_boxes = self._anchors.get_anchors(
-            image_shape[1], image_shape[2])
+            image_shape[0], image_shape[1]) ## Adjusted from 1, 2
         matched_gt_idx, positive_mask, ignore_mask = self._match_anchor_boxes(
             anchor_boxes, gt_boxes
         )
