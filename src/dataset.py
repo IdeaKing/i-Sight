@@ -117,13 +117,13 @@ class Dataset():
             lab_image, cv2.COLOR_LAB2RGB)
         return image_processed
 
-    def parse_process_voc(self, path_to_label):
+    def parse_process_voc(self, file_name):
         """Parses the PascalVOC XML Type file."""
         # Reads a voc annotation and returns
         # a list of tuples containing the ground
         # truth boxes and its respective label
 
-        root = ET.parse(path_to_label).getroot()
+        root = ET.parse(file_name).getroot()
         image_size = (int(root.findtext("size/width")),
                       int(root.findtext("size/height")))
         boxes = root.findall("object")
@@ -139,7 +139,6 @@ class Dataset():
             bbx.append(bb)
             labels.append(
                 int(self.labels_dict[b.findtext("name")]))
-
         bbx = tf.stack(bbx)
         # bbx are in relative mode
         bbx = label_utils.to_relative(bbx, image_size)
