@@ -11,12 +11,12 @@ if __name__=="__main__":
         dataset_path="datasets/data/VOC2012",
         training_dir="none")
     file_names = dataset.load_data(
-        configs=configs,
-        dataset_type="labeled")
+        dataset_path=configs.dataset_path,
+        file_name="labeled_train.txt")
     labeled_dataset = dataset.Dataset(
         file_names=file_names,
-        configs=configs,
-        dataset_type="labeled").create_dataset()
+        dataset_path=configs.dataset_path,
+        labels_dict=configs.labels)
     
     for image, label, bbs in labeled_dataset:
         print(f"Image shape: {image.numpy().shape}")

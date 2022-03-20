@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-from src.utils import training_utils
+from src.utils import training_utils, label_utils
 from src.losses import iou_utils
 
 
@@ -75,7 +75,7 @@ class EffDetLoss(tf.keras.losses.Loss):
     """Composition of Focal and Huber losses."""
 
     def __init__(self,
-                 num_classes=80,
+                 num_classes,
                  alpha=0.25,
                  gamma=1.5,
                  label_smoothing=0.1,
@@ -100,7 +100,7 @@ class EffDetLoss(tf.keras.losses.Loss):
         self.num_classes = num_classes
         self.include_iou = include_iou
 
-    #@tf.autograph.experimental.do_not_convert
+    # @tf.autograph.experimental.do_not_convert
     def call(self, y_true, y_pred):
         """Calculate Focal and Huber losses for every anchor box.
         Args:
@@ -143,6 +143,7 @@ class EffDetLoss(tf.keras.losses.Loss):
         if self.include_iou is None:
             loss = clf_loss + box_loss
         else:
+            box_preds = label_utils.to_tf_format(box_preds)
             iou = iou_utils.iou_loss(
                 pred_boxes=box_preds,
                 target_boxes=box_labels,

@@ -4,12 +4,11 @@ import tensorflow as tf
 from typing import Tuple
 from PIL import Image
 
-from src.utils import anchors
+from src.utils import anchors, label_utils
 from src.utils import label_utils
 
 
 class FilterDetections:
-
     def __init__(self,
                  score_threshold: float = 0.3,
                  image_shape: Tuple[int, int] = (512, 512),
@@ -41,26 +40,29 @@ class FilterDetections:
 
             # Loops from each batch
             for label, boxes in zip(labels, bboxes):
-                print(label.numpy().shape)
-                print(boxes.numpy().shape)
-                label = tf.nn.sigmoid(label)
-                boxes = label_utils.match_anchors(
-                    boxes=boxes,
+                labels = tf.nn.sigmoid(labels)
+                bboxes = label_utils.match_anchors(
+                    boxes=bboxes,
                     anchor_boxes=self.anchors)
+                tf_bboxes = label_utils.to_tf_format(bboxes)
+
                 nms = tf.image.combined_non_max_suppression(
-                    tf.expand_dims(boxes, axis=2),
-                    label,
+                    tf.expand_dims(tf_bboxes, axis=2),
+                    labels,
                     max_output_size_per_class=self.max_boxes,
                     max_total_size=self.max_size,
                     iou_threshold=self.iou_threshold,
                     score_threshold=self.score_threshold,
                     clip_boxes=False,
-                    name="Training-NMS")
+                    name="Non-training-NMS")
 
-                pred_labels.append(nms.nmsed_classes)
-                pred_bboxes.append(nms.nmsed_boxes)
-                pred_scores.append(nms.nmsed_scores)
+                labels = nms.nmsed_classes
+                bboxes = label_utils.to_norm_format(nms.nmsed_boxes)
+                scores = nms.nmsed_scores
 
+                pred_labels.append(labels)
+                pred_bboxes.append(boxes)
+                pred_scores.append(scores)
             return pred_labels, pred_bboxes, pred_scores
 
         else:
@@ -68,8 +70,10 @@ class FilterDetections:
             bboxes = label_utils.match_anchors(
                 boxes=bboxes,
                 anchor_boxes=self.anchors)
+            tf_bboxes = label_utils.to_tf_format(bboxes)
+
             nms = tf.image.combined_non_max_suppression(
-                tf.expand_dims(bboxes, axis=2),
+                tf.expand_dims(tf_bboxes, axis=2),
                 labels,
                 max_output_size_per_class=self.max_boxes,
                 max_total_size=self.max_size,
@@ -79,7 +83,7 @@ class FilterDetections:
                 name="Non-training-NMS")
 
             labels = nms.nmsed_classes
-            bboxes = nms.nmsed_boxes
+            bboxes = label_utils.to_norm_format(nms.nmsed_boxes)
             scores = nms.nmsed_scores
 
             return labels, bboxes, scores

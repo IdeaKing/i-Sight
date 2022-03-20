@@ -12,6 +12,26 @@ def to_xywh(bbox):
 
 
 @tf.autograph.experimental.do_not_convert
+def to_tf_format(boxes: tf.Tensor) -> tf.Tensor:
+    """
+    Convert xmin, ymin, xmax, ymax boxes to ymin, xmin, ymax, xmax
+    and viceversa
+    """
+    x1, y1, x2, y2 = tf.split(boxes, 4, axis=-1)
+    return tf.concat([y1, x1, y2, x2], axis=-1)
+
+
+@tf.autograph.experimental.do_not_convert
+def to_norm_format(boxes: tf.Tensor) -> tf.Tensor:
+    """
+    Convert ymin, xmin, ymax, xmax boxes to xmin, ymin, xmax, ymax
+    and viceversa
+    """
+    y1, x1, y2, x2 = tf.split(boxes, 4, axis=-1)
+    return tf.concat([x1, y1, x2, y2], axis=-1)
+
+
+@tf.autograph.experimental.do_not_convert
 def to_corners(bbox):
     """Convert [x, y, width, height] to [x_min, y_min, x_max, y_max]."""
     return tf.concat(
@@ -71,8 +91,10 @@ def compute_iou(boxes_1, boxes_2):
     boxes_1_corners = to_corners(boxes_1)
     boxes_2_corners = to_corners(boxes_2)
 
-    left_upper = tf.maximum(boxes_1_corners[..., None, :2], boxes_2_corners[..., :2])
-    right_lower = tf.minimum(boxes_1_corners[..., None, 2:], boxes_2_corners[..., 2:])
+    left_upper = tf.maximum(
+        boxes_1_corners[..., None, :2], boxes_2_corners[..., :2])
+    right_lower = tf.minimum(
+        boxes_1_corners[..., None, 2:], boxes_2_corners[..., 2:])
     diff = tf.maximum(0.0, right_lower - left_upper)
     intersection = diff[..., 0] * diff[..., 1]
 

@@ -19,12 +19,12 @@ if __name__=="__main__":
         dataset_path="datasets/data/VOC2012",
         training_dir="none")
     file_names = dataset.load_data(
-        configs=configs,
-        dataset_type="labeled")
+        dataset_path=configs.dataset_path,
+        file_name="labeled_train.txt")
     labeled_dataset = dataset.Dataset(
         file_names=file_names,
-        configs=configs,
-        dataset_type="labeled").create_dataset()
+        dataset_path=configs.dataset_path,
+        labels_dict=configs.labels)
 
     # Training configurations
     EPOCHS = 300
@@ -35,8 +35,9 @@ if __name__=="__main__":
         initial_learning_rate=1e-4,
         decay_steps=TOTAL_STEPS,
         decay_rate=0.96)
-    optimizer = tf.keras.optimizers.Adam(
-        learning_rate=lr_schedule)
+    optimizer = tf.keras.optimizers.SGD(
+        learning_rate=lr_schedule,
+        momentum=0.9)
     if MIXED_PRECISION:
         optimizer = tf.keras.mixed_precision.LossScaleOptimizer(optimizer)
 
@@ -46,14 +47,10 @@ if __name__=="__main__":
         num_classes=configs.num_classes)(inputs)
     model = tf.keras.models.Model(
         inputs=[inputs], outputs=[efficientdet_cls, efficientdet_bbx])
-    
 
     effdet_loss = EffDetLoss(
         num_classes=configs.num_classes,
         include_iou="ciou")
-
-
-    print(f"Num classes {configs.num_classes}")
 
     # Training Function
     @tf.function
@@ -80,10 +77,9 @@ if __name__=="__main__":
 
             loss = train_step(images, labels)
 
-            print(
-                f"Epoch {epoch} Step {step}/{STEPS_PER_EPOCH} ", \
-                f"loss {loss}") #" ".join(f"loss-{i} {loss}" for i, loss in enumerate(loss_vals)))
+            print(f"Epoch {epoch} Step {step}/{STEPS_PER_EPOCH} ", \
+                  f"loss {loss}")
             
         tf.keras.models.save_model(
             model,
-            "model")
+            "trained-model")

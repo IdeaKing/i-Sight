@@ -43,7 +43,7 @@ class Anchors():
             all_dims.append(tf.stack(level_dims, axis=0))
         return tf.stack(all_dims, axis=0)
 
-    @tf.function
+    @tf.function(experimental_relax_shapes=True)
     def _get_anchors(self, feature_height, feature_width, level):
         """Get anchors for with given height and width on given level.
         Args:
@@ -126,7 +126,7 @@ class Encoder():
 
     def _encode_sample(self, image_shape, gt_boxes, classes):
         anchor_boxes = self._anchors.get_anchors(
-            image_shape[0], image_shape[1]) ## Adjusted from 1, 2
+            image_shape[0], image_shape[1])  # Adjusted from 1, 2
         matched_gt_idx, positive_mask, ignore_mask = self._match_anchor_boxes(
             anchor_boxes, gt_boxes
         )
