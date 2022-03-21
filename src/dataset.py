@@ -126,7 +126,6 @@ class Dataset():
         # Reads a voc annotation and returns
         # a list of tuples containing the ground
         # truth boxes and its respective label
-
         root = ET.parse(file_name).getroot()
         image_size = (int(root.findtext("size/width")),
                       int(root.findtext("size/height")))

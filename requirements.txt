@@ -3,5 +3,6 @@ tensorflow==2.7.0
 opencv-python
 albumentations
 matplotlib
+Pillow
 
 # Web development backends

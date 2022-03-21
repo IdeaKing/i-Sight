@@ -1,7 +1,6 @@
 import os
 import argparse
 import tensorflow as tf
-import matplotlib.pyplot as plt
 
 from src.utils.postprocess import FilterDetections
 from src.utils.visualize import draw_boxes
@@ -50,11 +49,11 @@ if __name__ == "__main__":
         prog="i-Sight")
     parser.add_argument("--testing-image-dir",
                         type=str,
-                        default="data/dataset/VOC2012/TestImages",
+                        default="datasets/data/VOC2012/TestImages",
                         help="Path to testing images directory.")
     parser.add_argument("--save-image-dir",
                         type=str,
-                        default="data/dataset/Tests",
+                        default="datasets/data/Tests",
                         help="Path to testing images directory.")
     parser.add_argument("--model-dir",
                         type=str,
@@ -66,7 +65,7 @@ if __name__ == "__main__":
                         help="Size of the input image.")
     parser.add_argument("--labels-file",
                         type=str,
-                        default="data/dataset/VOC2012/labels.txt",
+                        default="datasets/data/VOC2012/labels.txt",
                         help="Path to labels file.")
     parser.add_argument("--score-threshold",
                         type=float,
@@ -79,14 +78,20 @@ if __name__ == "__main__":
     args=parser.parse_args()
 
     label_dict = parse_label_file(
-        path_to_label_file=args.labels_files)
+        path_to_label_file=args.labels_file)
 
     model = tf.keras.models.load_model(args.model_dir)
+
+    if os.path.exists(args.save_image_dir) == False:
+        os.mkdir(args.save_image_dir)
 
     for image_path in os.listdir(args.testing_image_dir):
         # Test the model on the image
         test(image_path=image_path,
+             image_dir=args.testing_image_dir,
+             save_dir=args.save_image_dir,
              model=model,
              image_dims=args.image_dims,
              label_dict=label_dict,
-             score_threshold=args.score_threshold)
+             score_threshold=args.score_threshold,
+             iou_threshold=args.iou_threshold)
