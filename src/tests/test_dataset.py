@@ -16,7 +16,8 @@ if __name__=="__main__":
     labeled_dataset = dataset.Dataset(
         file_names=file_names,
         dataset_path=configs.dataset_path,
-        labels_dict=configs.labels)
+        labels_dict=configs.labels,
+        training_type="object_detection")()
     
     for image, label, bbs in labeled_dataset:
         print(f"Image shape: {image.numpy().shape}")

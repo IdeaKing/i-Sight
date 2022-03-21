@@ -7,7 +7,7 @@
 '''
 # Notes:
 #   The dataset folder should contain the labels and images
-#   Description of YOLO Format values
+#   Description of YOLO Format values (in relative positions)
 #       15 0.448743 0.529142 0.051587 0.021081
 #       class_number x y width height
 
@@ -37,6 +37,7 @@ def read_class_file(yolo_class_list_file):
     array_of_yolo_classes = [x.strip() for x in yolo_classes]
     return array_of_yolo_classes
 
+
 def is_number(n):
     try:
         float(n)
@@ -48,11 +49,12 @@ def is_number(n):
 def convert_to_xml(folder_holding_yolo_files, array_of_yolo_classes):
 
     if not os.path.exists(folder_holding_yolo_files + os.sep + 'XML'):
-    # If an XML folder does not already exist, make one
+        # If an XML folder does not already exist, make one
         os.mkdir('XML')
 
     for each_yolo_file in os.listdir(folder_holding_yolo_files):
-        full_each_yolo_file = os.path.join(folder_holding_yolo_files, each_yolo_file)  
+        full_each_yolo_file = os.path.join(
+            folder_holding_yolo_files, each_yolo_file)
         if full_each_yolo_file.endswith("txt"):
             the_file = open(full_each_yolo_file, 'r')
             all_lines = the_file.readlines()
@@ -69,7 +71,8 @@ def convert_to_xml(folder_holding_yolo_files, array_of_yolo_classes):
             if not image_name == each_yolo_file:
                 # If the image name is the same as the yolo filename
                 # then we did NOT find an image that matches, and we will skip this code block
-                orig_img = Image.open(os.path.join(folder_holding_yolo_files, image_name)) # open the image
+                orig_img = Image.open(os.path.join(
+                    folder_holding_yolo_files, image_name))  # open the image
                 image_width = orig_img.width
                 image_height = orig_img.height
 
@@ -78,20 +81,23 @@ def convert_to_xml(folder_holding_yolo_files, array_of_yolo_classes):
                     f.write('<annotation>\n')
                     f.write('\t<folder>XML</folder>\n')
                     f.write('\t<filename>' + image_name + '</filename>\n')
-                    f.write('\t<path>' + os.getcwd() + os.sep + image_name + '</path>\n')
+                    f.write('\t<path>' + os.getcwd() +
+                            os.sep + image_name + '</path>\n')
                     f.write('\t<source>\n')
                     f.write('\t\t<database>Unknown</database>\n')
                     f.write('\t</source>\n')
                     f.write('\t<size>\n')
                     f.write('\t\t<width>' + str(image_width) + '</width>\n')
                     f.write('\t\t<height>' + str(image_height) + '</height>\n')
-                    f.write('\t\t<depth>3</depth>\n') # assuming a 3 channel color image (RGB)
+                    # assuming a 3 channel color image (RGB)
+                    f.write('\t\t<depth>3</depth>\n')
                     f.write('\t</size>\n')
                     f.write('\t<segmented>0</segmented>\n')
-                
+
                     for each_line in all_lines:
                         # regex to find the numbers in each line of the text file
-                        yolo_array = re.split("\s", each_line.rstrip()) # remove any extra space from the end of the line
+                        # remove any extra space from the end of the line
+                        yolo_array = re.split("\s", each_line.rstrip())
 
                         # initalize the variables
                         class_number = 0
@@ -107,7 +113,7 @@ def convert_to_xml(folder_holding_yolo_files, array_of_yolo_classes):
                                 # If a value is not a number, then the format is not correct, return false
                                 if not is_number(each_value):
                                     yolo_array_contains_only_digits = False
-                            
+
                             if yolo_array_contains_only_digits:
                                 # assign the variables
                                 class_number = int(yolo_array[0])
@@ -120,14 +126,19 @@ def convert_to_xml(folder_holding_yolo_files, array_of_yolo_classes):
                                 # Convert Yolo Format to Pascal VOC format
                                 box_width = yolo_width * image_width
                                 box_height = yolo_height * image_height
-                                x_min = str(int(x_yolo * image_width - (box_width / 2)))
-                                y_min = str(int(y_yolo * image_height - (box_height / 2)))
-                                x_max = str(int(x_yolo * image_width + (box_width / 2)))
-                                y_max = str(int(y_yolo * image_height + (box_height / 2)))
+                                x_min = str(
+                                    int(x_yolo * image_width - (box_width / 2)))
+                                y_min = str(
+                                    int(y_yolo * image_height - (box_height / 2)))
+                                x_max = str(
+                                    int(x_yolo * image_width + (box_width / 2)))
+                                y_max = str(
+                                    int(y_yolo * image_height + (box_height / 2)))
 
                                 # write each object to the file
                                 f.write('\t<object>\n')
-                                f.write('\t\t<name>' + object_name + '</name>\n')
+                                f.write('\t\t<name>' +
+                                        object_name + '</name>\n')
                                 f.write('\t\t<pose>Unspecified</pose>\n')
                                 f.write('\t\t<truncated>0</truncated>\n')
                                 f.write('\t\t<difficult>0</difficult>\n')
@@ -141,7 +152,49 @@ def convert_to_xml(folder_holding_yolo_files, array_of_yolo_classes):
 
                     # Close the annotation tag once all the objects have been written to the file
                     f.write('</annotation>\n')
-                    f.close() # Close the file
+                    f.close()  # Close the file
+
+
+def save_labels_to_xml(dataset_dir, image_dims, labels, path):
+    """Saves the labels created by model into xml labels."""
+    # Add meta data to the xml file
+    with open(path, 'w') as f:
+        f.write('<annotation>\n')
+        f.write('\t<folder>' + str(dataset_dir) + '</folder>\n')
+        f.write('\t<filename>' + os.path.basename(path)
+                [:-4] + ".jpg" + '</filename>\n')
+        f.write('\t<path>' + path[:-4] + ".jpg" + '</path>\n')
+        f.write('\t<source>\n')
+        f.write('\t\t<database>AMPL-Thomas-Chia-2022</database>\n')
+        f.write('\t</source>\n')
+        f.write('\t<size>\n')
+        f.write('\t\t<width>' + str(image_dims[0]) + '</width>\n')
+        f.write('\t\t<height>' + str(image_dims[1]) + '</height>\n')
+        f.write('\t\t<depth>3</depth>\n')
+        f.write('\t</size>\n')
+        f.write('\t<segmented>0</segmented>\n')
+        # Loop through each of the labels and add to the xml file
+        for label in labels:
+            xmin, ymin, xmax, ymax, id = label
+            # Convert the id number into object names
+            object_name = list(labels.keys()).index(id)
+            # Write each coordinate and class to the file
+            f.write('\t<object>\n')
+            f.write('\t\t<name>' + object_name + '</name>\n')
+            f.write('\t\t<pose>Unspecified</pose>\n')
+            f.write('\t\t<truncated>0</truncated>\n')
+            f.write('\t\t<difficult>0</difficult>\n')
+            f.write('\t\t<bndbox>\n')
+            f.write('\t\t\t<xmin>' + xmin + '</xmin>\n')
+            f.write('\t\t\t<ymin>' + ymin + '</ymin>\n')
+            f.write('\t\t\t<xmax>' + xmax + '</xmax>\n')
+            f.write('\t\t\t<ymax>' + ymax + '</ymax>\n')
+            f.write('\t\t</bndbox>\n')
+            f.write('\t</object>\n')
+        # Close the annotation tag once all the objects have been written to the file
+        f.write('</annotation>\n')
+        f.close()  # Close the file
+
 
 if __name__ == "__main__":
     folder_holding_yolo_files, yolo_class_list_file = parse_args()

@@ -140,9 +140,7 @@ class Encoder():
         class_target = tf.where(tf.equal(ignore_mask, 1.0), -2.0, class_target)
         class_target = tf.expand_dims(class_target, axis=-1)
 
-        # label = tf.concat([class_target, box_target], axis=-1)
-
-        return class_target, box_target  # label
+        return class_target, box_target
 
     def encode_batch(self, images, classes, gt_boxes):
         """Encode batch for training."""

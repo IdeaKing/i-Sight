@@ -7,7 +7,7 @@ import src.config as config
 from src.models.efficientdet import get_efficientdet
 from src.losses.loss import EffDetLoss
 
-MIXED_PRECISION = False
+MIXED_PRECISION = True
 
 if __name__=="__main__":
     tf.keras.backend.clear_session()
@@ -24,7 +24,8 @@ if __name__=="__main__":
     labeled_dataset = dataset.Dataset(
         file_names=file_names,
         dataset_path=configs.dataset_path,
-        labels_dict=configs.labels)()
+        labels_dict=configs.labels,
+        batch_size=8)()
 
     # Training configurations
     EPOCHS = 300

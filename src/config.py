@@ -1,6 +1,6 @@
 # Thomas Chia i-Sight Configs
 import os
-import src.utils.training_utils as t_utils
+import src.utils.file_reader as t_utils
 
 
 class Configs():

@@ -6,8 +6,7 @@ import matplotlib.pyplot as plt
 
 from src.utils.postprocess import FilterDetections
 from src.utils.visualize import draw_boxes
-
-import src.utils.training_utils as t_utils
+from src.utils.file_reader import parse_label_file
 
 
 def preprocess_image(image_path, image_dims):
@@ -46,7 +45,7 @@ def test(image_path, model, image_dims, label_dict, score_threshold):
 
 if __name__ == "__main__":
     image_dims = (512, 512)
-    label_dict = t_utils.parse_label_file(
+    label_dict = parse_label_file(
         path_to_label_file="datasets/data/VOC2012/labels.txt")
     score_threshold = 0.10
 

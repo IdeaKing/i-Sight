@@ -17,7 +17,7 @@ def to_tf_format(boxes: tf.Tensor) -> tf.Tensor:
     Convert xmin, ymin, xmax, ymax boxes to ymin, xmin, ymax, xmax
     and viceversa
     """
-    x1, y1, x2, y2 = tf.split(boxes, 4, axis=-1)
+    x1, y1, x2, y2 = tf.split(boxes[..., :], 4, axis=-1)
     return tf.concat([y1, x1, y2, x2], axis=-1)
 
 
@@ -27,7 +27,7 @@ def to_norm_format(boxes: tf.Tensor) -> tf.Tensor:
     Convert ymin, xmin, ymax, xmax boxes to xmin, ymin, xmax, ymax
     and viceversa
     """
-    y1, x1, y2, x2 = tf.split(boxes, 4, axis=-1)
+    y1, x1, y2, x2 = tf.split(boxes[..., :], 4, axis=-1)
     return tf.concat([x1, y1, x2, y2], axis=-1)
 
 

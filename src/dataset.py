@@ -15,11 +15,14 @@ from src.utils.anchors import Encoder
 from src.utils import label_utils
 
 # The full tf.data pipline
+
+
 class Dataset():
     def __init__(self,
                  file_names: List,
                  dataset_path: str,
                  labels_dict: dict,
+                 training_type: str,
                  batch_size: int = 4,
                  shuffle_size: int = 64,
                  images_dir: str = "images",
@@ -31,6 +34,7 @@ class Dataset():
         self.file_names = file_names
         self.dataset_path = dataset_path
         self.labels_dict = labels_dict
+        self.training_type = training_type
         self.batch_size = batch_size
         self.shuffle_size = shuffle_size
         self.images_dir = images_dir
@@ -148,15 +152,18 @@ class Dataset():
 
     def parse_process_image(self, file_name):
         # file_name = bytes.decode(file_name, encoding="utf-8")
-        image = cv2.imread(file_name)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = tf.io.read_file(file_name)
+        image = tf.io.decode_jpeg(
+            image,
+            channels=3)
         # image = self.fundus_preprocessing(image)
-        image = image/255  # Normalize
-        image = cv2.resize(image, self.image_dims)
-        image = np.array(image, np.float32)
+        image = tf.cast(image, tf.float32)/255.# Normalize
+        image = tf.image.resize(images=image,
+                                size=self.image_dims)
+        image = np.asarray(image, np.float32)
         return image
 
-    def parse(self, file_name):
+    def parse_object_detection(self, file_name):
         file_name = bytes.decode(file_name, encoding="utf-8")
         image_file_path = os.path.join(self.dataset_path,
                                        self.images_dir,
@@ -182,17 +189,18 @@ class Dataset():
 
     def __call__(self):
         list_ds = tf.data.Dataset.from_tensor_slices(self.file_names)
-        ds = list_ds.map(
-            lambda x: tf.numpy_function(
-                self.parse,
-                inp=[x],
-                Tout=[tf.float32, tf.float32, tf.float32]),
-            num_parallel_calls=tf.data.experimental.AUTOTUNE,
-            name="dataset_ds")
-        ds = ds.shuffle(self.shuffle_size)
-        ds = ds.batch(self.batch_size)
-        ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
-        return ds
+        if self.training_type == "object_detection" and self.dataset_type == "labeled":
+            ds = list_ds.map(
+                lambda x: tf.numpy_function(
+                    self.parse_object_detection,
+                    inp=[x],
+                    Tout=[tf.float32, tf.float32, tf.float32]),
+                num_parallel_calls=tf.data.experimental.AUTOTUNE,
+                name="object_detection_parser")
+            # ds = ds.shuffle(self.shuffle_size)
+            ds = ds.batch(self.batch_size)
+            ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
+            return ds
 
 
 def load_data(dataset_path, file_name="labeled_train.txt"):

@@ -1,8 +1,8 @@
 import numpy as np
 import tensorflow as tf
 
-from src.utils import training_utils, label_utils
-from src.losses import iou_utils
+from src.utils import label_utils
+from src.losses import iou_utils, pseudo_labels
 
 
 class FocalLoss(tf.keras.losses.Loss):
@@ -159,14 +159,29 @@ class UDA(tf.keras.losses.Loss):
             self,
             batch_size: int,
             unlabeled_batch_size: int,
-            num_classes: int):
+            num_classes: int,
+            loss_func: tf.keras.losses.Loss,
+            training_type: str = "object_detection"):
+        """Unsupervised Data Augmentation for Consistency Training
+
+        Parameters:
+            batch_size (int): The batch size
+            unlabeled_batch_size (int): The unlabeled batch size
+            num_classes (int): The number of classes
+            loss_func (tf.keras.losses.loss): The loss function to 
+                apply labeled data
+            training_type (str): Either "object_detection", "segmentation",
+                or "classification"
+        """
         super(UDA, self).__init__()
         self.batch_size = batch_size
         self.unlabeled_batch_size = unlabeled_batch_size
         self.num_classes = num_classes
-        self.convert_to_labels = training_utils.PseudoLabelObjectDetection()
-        self.loss_func = EffDetLoss(num_classes=num_classes)
-        self.consistency_loss = tf.keras.losses.KLDivergence()
+        self.loss_func = loss_func
+
+        if training_type == "object_detection":
+            self.convert_to_labels = pseudo_labels.PseudoLabelObjectDetection()
+            self.consistency_loss = tf.keras.losses.KLDivergence()
 
     @tf.function
     def __call__(self, y_true: tf.Tensor, y_pred: tf.Tensor):
@@ -178,8 +193,8 @@ class UDA(tf.keras.losses.Loss):
         logits["l"], logits["u_ori"], logits["u_aug"] = tf.split(
             y_pred,
             [self.configs.batch_size,
-                self.configs.unlabeled_batch_size,
-                self.configs.unlabeled_batch_size],
+             self.configs.unlabeled_batch_size,
+             self.configs.unlabeled_batch_size],
             axis=0)
         # Step 1: Loss for Labeled Values
         loss["l"] = self.loss_func(
@@ -189,9 +204,13 @@ class UDA(tf.keras.losses.Loss):
         labels["u_ori"] = self.convert_to_labels(
             logits["u_ori"])  # Applies NMS, anchors
         # Consistency loss between unlabeled values
-        unlabeled_cls_loss = self.consistency_loss(
-            labels["u_ori"][0], logits["u_aug"][0])
-        unlabeled_obd_loss = self.consistency_loss(
-            labels["u_ori"][1], logits["u_aug"][1])
-        loss["u"] = tf.reduce_mean([unlabeled_cls_loss, unlabeled_obd_loss])
+        if self.training_type == "object_detection":
+            unlabeled_cls_loss = self.consistency_loss(
+                y_true=labels["u_ori"][0],
+                y_pred=logits["u_aug"][0])
+            unlabeled_obd_loss = self.consistency_loss(
+                y_true=labels["u_ori"][1],
+                y_pred=logits["u_aug"][1])
+            loss["u"] = tf.reduce_mean(
+                [unlabeled_cls_loss, unlabeled_obd_loss])
         return logits, labels, masks, loss
