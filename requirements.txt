@@ -2,6 +2,7 @@
 tensorflow==2.7.0
 opencv-python # Only needed for fundus images
 albumentations
-matplotlib # Only needed for notebooks and display
+matplotlib
+Pillow
 
 # Web development backends

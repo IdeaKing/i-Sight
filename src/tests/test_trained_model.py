@@ -47,11 +47,11 @@ if __name__ == "__main__":
     image_dims = (512, 512)
     label_dict = parse_label_file(
         path_to_label_file="datasets/data/VOC2012/labels.txt")
-    score_threshold = 0.10
+    score_threshold = 0.1
 
     # Path to image and model
-    image_path = "datasets/data/VOC2012/images/2007_002545.jpg"
-    model_path = "model/model"
+    image_path = "datasets/data/VOC2012/images/2008_000676.jpg"
+    model_path = "training_dir/voc/model-exported"
     model = tf.keras.models.load_model(model_path)
 
     # Test the model on the image
