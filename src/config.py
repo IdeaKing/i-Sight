@@ -1,6 +1,6 @@
 # Thomas Chia i-Sight Configs
 import os
-import src.utils.training_utils as t_utils
+import src.utils.file_reader as t_utils
 
 
 class Configs():
@@ -35,7 +35,7 @@ class Configs():
         self.dataset_size = None # Used to compute steps
         # Training
         self.transfer_learning = "imagenet" # Or name of directory
-        self.epochs = 150
+        self.epochs = 10
         self.total_steps = None # To be updated with dataset
         self.student_total_steps = None
         self.warmup_steps = None
@@ -91,7 +91,11 @@ class Configs():
         elif self.training_type == "obd":
             self.network_type = "D0"
             # Network configurations
-            self.image_size = {"D0": (256, 256), "D1": (640, 640), 
+            self.network = {"D0": 0, "D1": 1, 
+                            "D2": 2, "D3": 3, 
+                            "D4": 4, "D5": 5, 
+                            "D6": 6, "D7": 7}
+            self.image_size = {"D0": (512, 512), "D1": (640, 640), 
                                "D2": (768, 768), "D3": (896, 896), 
                                "D4": (1024, 1024), "D5": (1280, 1280), 
                                "D6": (1408, 1408), "D7": (1536, 1536)}
@@ -120,6 +124,7 @@ class Configs():
                             "D4": 4, "D5": 4, 
                             "D6": 5, "D7": 5}
             # Update the Params
+            self.network = self.network[self.network_type]
             self.image_dims = self.image_size[self.network_type]
             self.width_coefficient = self.width_coefficient[self.network_type]
             self.depth_coefficient = self.depth_coefficient[self.network_type]
@@ -139,10 +144,10 @@ class Configs():
             self.score_threshold = 0.35
             self.iou_threshold = 0.01
             # Anchor processng
-            self.max_box_num = 200
+            self.max_box_num = 100
             self.anchors = 9
-            self.ratios = [0.5, 1, 2]
-            self.scales = [2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)]
+            self.ratios = [1, 2, 0.5]
+            self.scales = (2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0))
             self.downsampling_strides = [8, 16, 32, 64, 128]
             self.sizes = [32, 64, 128, 256, 512]
 

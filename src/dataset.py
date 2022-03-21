@@ -2,21 +2,47 @@
 
 import os
 import random
-import xml.dom.minidom as xdom
+import xml.etree.ElementTree as ET
 
 import cv2
 import numpy as np
 import tensorflow as tf
 import albumentations as A
 
-# The full tf.data pipline
-class Dataset():
-    def __init__(self, file_names, configs, dataset_type):
-        self.file_names = file_names
-        self.configs = configs
-        self.image_dims = configs.image_dims
-        self.dataset_type = dataset_type
+from typing import List, Tuple
 
+from src.utils.anchors import Encoder
+from src.utils import label_utils
+
+# The full tf.data pipline
+
+
+class Dataset():
+    def __init__(self,
+                 file_names: List,
+                 dataset_path: str,
+                 labels_dict: dict,
+                 training_type: str,
+                 batch_size: int = 4,
+                 shuffle_size: int = 64,
+                 images_dir: str = "images",
+                 labels_dir: str = "labels",
+                 image_dims: Tuple = (512, 512),
+                 augment_ds: bool = False,
+                 dataset_type: str = "labeled"):
+        """ Creates the object detection dataset. """
+        self.file_names = file_names
+        self.dataset_path = dataset_path
+        self.labels_dict = labels_dict
+        self.training_type = training_type
+        self.batch_size = batch_size
+        self.shuffle_size = shuffle_size
+        self.images_dir = images_dir
+        self.labels_dir = labels_dir
+        self.image_dims = image_dims
+        self.augment_ds = augment_ds
+        self.dataset_type = dataset_type
+        self.encoder = Encoder()
 
     def parse_augment_image(self, file_name):
         """For augmenting images and bboxes."""
@@ -28,23 +54,50 @@ class Dataset():
         image = self.fundus_preprocessing(image)
         # Augmentation function
         transform = A.Compose(
-            [A.Flip(p = 0.5),
-             A.Rotate(p = 0.5),
-             A.ElasticTransform(p = 0.25),
-             A.OpticalDistortion(p = 0.25)])
+            [A.Flip(p=0.5),
+             A.Rotate(p=0.5),
+             A.ElasticTransform(p=0.25),
+             A.OpticalDistortion(p=0.25)])
         aug = transform(
-            image = image)
+            image=image)
         image = aug["image"]/255.
         image = np.array(image, dtype=np.float32)
         return image
 
+    def augment(self, image, label, bbx):
+        """For augmenting images and bboxes."""
+        # Read and preprocess the image
+        image, label, bbx = (image, label.tolist(), bbx.tolist())
+        # Augmentation function
+        if self.augment_ds:
+            transform = A.Compose(
+                [A.Flip(p=0.5),
+                 A.Rotate(p=0.5),
+                 A.RandomBrightnessContrast(p=0.2)],
+                bbox_params=A.BboxParams(
+                    format="pascal_voc",
+                    label_fields=["class_labels"]))
+        else:
+            transform = A.Compose(
+                [],
+                bbox_params=A.BboxParams(
+                    format="pascal_voc",
+                    label_fields=["class_labels"]))
+        aug = transform(
+            image=image,
+            bboxes=bbx,
+            class_labels=label)
+        image = np.array(aug["image"], np.float32)
+        labels = np.array(aug["class_labels"], np.int32)
+        bbx = np.array(aug["bboxes"], np.float32)
+        return image, labels, bbx
 
     def fundus_preprocessing(self, image):
         """An improved luminosity and contrast enhancement 
         framework for feature preservation in color fundus images"""
         # RGB to HSV
         image_hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-        H,S,V = cv2.split(image_hsv)
+        H, S, V = cv2.split(image_hsv)
         # Gamma adjustment on V Channe;
         gamma_val = 1/2.2
         gamma_tab = [((i / 255) ** gamma_val) * 255 for i in range(256)]
@@ -57,277 +110,106 @@ class Dataset():
                 image_hsv_gamma, cv2.COLOR_HSV2RGB),
             cv2.COLOR_RGB2LAB)
         # CLAHE on L Channel
-        l,a,b = cv2.split(image_lab)
+        l, a, b = cv2.split(image_lab)
         clahe = cv2.createCLAHE(
-            clipLimit=2.5, 
-            tileGridSize=(8,8))
+            clipLimit=2.5,
+            tileGridSize=(8, 8))
         l = clahe.apply(l)
-        lab_image = cv2.merge((l,a,b))
+        lab_image = cv2.merge((l, a, b))
         # Convert image back to rgb
         image_processed = cv2.cvtColor(
             lab_image, cv2.COLOR_LAB2RGB)
         return image_processed
 
-
-    def parse_xml(self, path_to_label):
+    def parse_process_voc(self, file_name):
         """Parses the PascalVOC XML Type file."""
-        obj_and_box_list = []
-        contents = xdom.parse(path_to_label)
-        annotation = contents.documentElement
-        size = annotation.getElementsByTagName("size")
-        image_height = 0
-        image_width = 0
-        # Find the width and height of the original image
-        for s in size:
-            image_height = int(
-                s.getElementsByTagName(
-                    "height")[0].childNodes[0].data)
-            image_width = int(
-                s.getElementsByTagName(
-                    "width")[0].childNodes[0].data)
-        obj = annotation.getElementsByTagName("object")
-        # Find all of the bounding boxes
-        for o in obj:
-            o_list = []
-            obj_name = o.getElementsByTagName(
-                "name")[0].childNodes[0].data
-            bndbox = o.getElementsByTagName("bndbox")
-            for box in bndbox:
-                xmin = box.getElementsByTagName(
-                    "xmin")[0].childNodes[0].data
-                ymin = box.getElementsByTagName(
-                    "ymin")[0].childNodes[0].data
-                xmax = box.getElementsByTagName(
-                    "xmax")[0].childNodes[0].data
-                ymax = box.getElementsByTagName(
-                    "ymax")[0].childNodes[0].data
-                x_min = int(int(xmin)) #*image_width/self.configs.image_dims[0])
-                y_min = int(int(ymin)) #*image_height/self.configs.image_dims[1])
-                x_max = int(int(xmax)) #*image_width/self.configs.image_dims[0])
-                y_max = int(int(ymax)) #*image_height/self.configs.image_dims[1])
-                o_list.append(x_min)
-                o_list.append(y_min)
-                o_list.append(x_max)
-                o_list.append(y_max)
-                break
-            o_list.append(int(self.configs.labels[obj_name]))
-            obj_and_box_list.append(o_list)
-        return obj_and_box_list
+        # Reads a voc annotation and returns
+        # a list of tuples containing the ground
+        # truth boxes and its respective label
 
+        root = ET.parse(file_name).getroot()
+        image_size = (int(root.findtext("size/width")),
+                      int(root.findtext("size/height")))
+        boxes = root.findall("object")
+        bbx = []
+        labels = []
 
-    def pad_bboxes(self, box):
-        """Pads the bounding boxes for easy batching."""
-        padding_boxes = self.configs.max_box_num \
-            - len(box)
-        # Append "zero boxes" to pad the list
-        if padding_boxes > 0:
-            for boxes in range(padding_boxes):
-                box.append([0,0,0,0, -1])
-        return box
-
+        for b in boxes:
+            bb = b.find("bndbox")
+            bb = (int(bb.findtext("xmin")),
+                  int(bb.findtext("ymin")),
+                  int(bb.findtext("xmax")),
+                  int(bb.findtext("ymax")))
+            bbx.append(bb)
+            labels.append(
+                int(self.labels_dict[b.findtext("name")]))
+        bbx = tf.stack(bbx)
+        # bbx are in relative mode
+        bbx = label_utils.to_relative(bbx, image_size)
+        # Scale bbx to input image dims
+        bbx = label_utils.to_scale(bbx, self.image_dims)
+        return np.array(labels), np.array(bbx)
 
     def parse_process_image(self, file_name):
-        file_name = bytes.decode(file_name, encoding="utf-8")
-        image = cv2.imread(file_name)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = cv2.resize(image, self.image_dims)
-        image = self.fundus_preprocessing(image)
-        image = image/255 # Normalize
-        image = np.array(image, np.float32)
+        # file_name = bytes.decode(file_name, encoding="utf-8")
+        image = tf.io.read_file(file_name)
+        image = tf.io.decode_jpeg(
+            image,
+            channels=3)
+        # image = self.fundus_preprocessing(image)
+        image = tf.cast(image, tf.float32)/255.# Normalize
+        image = tf.image.resize(images=image,
+                                size=self.image_dims)
+        image = np.asarray(image, np.float32)
         return image
-    
 
-    def parse_process_voc(self, file_name):
+    def parse_object_detection(self, file_name):
         file_name = bytes.decode(file_name, encoding="utf-8")
-        labels = self.parse_xml(file_name)
-        labels = self.pad_bboxes(labels)
-        labels = np.array(labels, np.float32)
-        return labels
-    
+        image_file_path = os.path.join(self.dataset_path,
+                                       self.images_dir,
+                                       file_name + ".jpg")
+        label_file_path = os.path.join(self.dataset_path,
+                                       self.labels_dir,
+                                       file_name + ".xml")
+        image = self.parse_process_image(
+            file_name=image_file_path)
+        label, bboxs = self.parse_process_voc(
+            file_name=label_file_path)
+        image, label, bboxs = self.augment(
+            image=image, label=label, bbx=bboxs)
+        bboxs = label_utils.to_xywh(bboxs)
+        image, label, bboxs = (np.array(image, np.float32),
+                               np.array(label, np.int32),
+                               np.array(bboxs, np.float32))
+        label, bboxs = self.encoder._encode_sample(
+            image_shape=self.image_dims,
+            gt_boxes=bboxs,
+            classes=label)
+        return image, label, bboxs
 
-    def load_serialized_dataset(self):
-        """Loads dataset from directory."""
-        if self.dataset_type == "labeled":
-            # Loads the dataset from directory
-            l_image_ds = tf.data.experimental.load(
-                self.configs.serialized_dir + "/labeled_im")
-            l_label_ds = tf.data.experimental.save(
-                self.configs.serialized_dir + "/labeled_lb")
-            # Process and zip the datasets
-            ds = tf.data.Dataset.zip((l_image_ds, l_label_ds))
-            ds = ds.shuffle(
-                buffer_size = self.configs.shuffle_size)
-            ds = ds.batch(
-                self.configs.batch_size)
-            ds = ds.prefetch(
-                buffer_size = tf.data.experimental.AUTOTUNE)
-            return ds
-        elif self.dataset_type == "unlabeled":
-            # Loads the dataset from directory
-            u_orgim_ds = tf.data.experimental.load(
-                self.configs.serialized_dir + "/unlabeled_orgim")
-            u_augim_ds = tf.data.experimental.save(
-                self.configs.serialized_dir + "/unlabeled_augim")
-            # Process and zip the datasets
-            ds = tf.data.Dataset.zip((u_orgim_ds, u_augim_ds))
-            ds = ds.shuffle(
-                buffer_size = self.configs.shuffle_size)
-            ds = ds.batch(
-                self.configs.batch_size)
-            ds = ds.prefetch(
-                buffer_size = tf.data.experimental.AUTOTUNE)
+    def __call__(self):
+        list_ds = tf.data.Dataset.from_tensor_slices(self.file_names)
+        if self.training_type == "object_detection" and self.dataset_type == "labeled":
+            ds = list_ds.map(
+                lambda x: tf.numpy_function(
+                    self.parse_object_detection,
+                    inp=[x],
+                    Tout=[tf.float32, tf.float32, tf.float32]),
+                num_parallel_calls=tf.data.experimental.AUTOTUNE,
+                name="object_detection_parser")
+            # ds = ds.shuffle(self.shuffle_size)
+            ds = ds.batch(self.batch_size)
+            ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
             return ds
 
 
-    def serialize_dataset(self, inp1, inp2):
-        """Processes and saves the dataset."""
-        if self.dataset_type == "labeled":
-            # inp1 is the OrgImage Dataset
-            tf.data.experimental.save(
-                inp1, 
-                self.configs.serialized_dir + "/labeled_im")
-            # inp2 is the Labels Dataset
-            tf.data.experimental.save(
-                inp2,
-                self.configs.serialized_dir + "/labeled_lb")
-        elif self.dataset_type == "unlabeled":
-            # inp1 is the OrgImage Dataset
-            tf.data.experimental.save(
-                inp1, 
-                self.configs.serialized_dir + "/unlabeled_orgim")
-            # inp2 is the AugImage Dataset
-            tf.data.experimental.save(
-                inp2,
-                self.configs.serialized_dir + "/unlabeled_augim")
-
-
-    def create_dataset(self):
-        if self.dataset_type == "labeled" or self.dataset_type == "student":
-            if self.dataset_type == "labeled":
-                # List of the filepaths for images and labels
-                images_paths = [
-                    os.path.join(
-                        self.configs.dataset_path,
-                        self.configs.images_dir,
-                        file + ".jpg") for file in self.file_names]
-                labels_paths = [
-                    os.path.join(
-                        self.configs.dataset_path,
-                        self.configs.labels_dir,
-                        file + ".xml") for file in self.file_names]
-            elif self.dataset_type == "student":
-                images_paths = [
-                    os.path.join(
-                        self.configs.dataset_path,
-                        self.configs.student_images_dir,
-                        file + ".jpg") for file in self.file_names]
-                labels_paths = [
-                    os.path.join(
-                        self.configs.dataset_path,
-                        self.configs.student_labels_dir,
-                        file + ".xml") for file in self.file_names]
-            # Create the dataset object for the images
-            image_list_ds = tf.data.Dataset.from_tensor_slices(images_paths)
-            l_image_ds = image_list_ds.map(
-                lambda x: tf.numpy_function(
-                    self.parse_process_image,
-                    inp=[x],
-                    Tout=tf.float32,
-                    name="l_parse_image"),
-                num_parallel_calls=tf.data.experimental.AUTOTUNE,
-                name = "l_image_map_ds")
-            # Create the dataset object for the labels
-            label_list_ds = tf.data.Dataset.from_tensor_slices(labels_paths)
-            l_label_ds = label_list_ds.map(
-                lambda x: tf.numpy_function(
-                    self.parse_process_voc,
-                    inp=[x],
-                    Tout=tf.float32,
-                    name="l_parse_label"),
-                num_parallel_calls=tf.data.experimental.AUTOTUNE,
-                name = "bbox_map_ds")
-            # Zip dataset and apply training configs
-            ds = tf.data.Dataset.zip((l_image_ds, l_label_ds))
-            ds = ds.shuffle(
-                buffer_size = self.configs.shuffle_size)
-            if self.dataset_type == "student":
-                ds = ds.batch(
-                    self.configs.student_batch_size,
-                    drop_remainder=True)
-            else:
-                ds = ds.batch(
-                    self.configs.batch_size,
-                    drop_remainder=True)
-            ds = ds.prefetch(
-                buffer_size = tf.data.experimental.AUTOTUNE)
-            return ds
-        elif self.dataset_type == "unlabeled":
-            # List of the filepaths for images and labels
-            images_paths = [
-                os.path.join(
-                    self.configs.dataset_path,
-                    self.configs.images_dir,
-                    file + ".jpg") for file in self.file_names]
-            image_list_ds = tf.data.Dataset.from_tensor_slices(images_paths)
-            u_orgim_ds = image_list_ds.map(
-                lambda x: tf.numpy_function(
-                    self.parse_process_image,
-                    inp=[x],
-                    Tout=tf.float32,
-                    name="u_parse_orgim"),
-                num_parallel_calls=tf.data.experimental.AUTOTUNE,
-                name = "u_org_map_ds")
-            u_augim_ds = image_list_ds.map(
-                lambda x: tf.numpy_function(
-                    self.parse_augment_image,
-                    inp=[x],
-                    Tout=tf.float32,
-                    name="u_parse_augim"),
-                num_parallel_calls=tf.data.experimental.AUTOTUNE,
-                name = "u_aug_map_ds")
-            # Zip dataset and apply training configs
-            ds = tf.data.Dataset.zip((u_orgim_ds, u_augim_ds))
-            ds = ds.shuffle(
-                buffer_size = self.configs.shuffle_size)
-            ds = ds.batch(
-                self.configs.unlabeled_batch_size,
-                drop_remainder=True)
-            ds = ds.prefetch(
-                buffer_size = tf.data.experimental.AUTOTUNE)
-            return ds
-
-
-def get_files(configs):
-    """Creates a list of the files."""
-    ## Legacy func to be deleted.
-    image_file = open(
-        configs.dataset_path + "\labeled_train.txt", "r")
-    image_file_names = image_file.readlines()
-    image_file_names = [name.strip() for name in image_file_names]
-    
-    return image_file_names
-
-
-def load_data(configs, dataset_type = "labeled"):
-    """Find the file paths for training and validation off of file."""
+def load_data(dataset_path, file_name="labeled_train.txt"):
+    """Reads each line of the file."""
     file_names = []
-    if dataset_type == "labeled":
-        with open(
-            os.path.join(
-                configs.dataset_path, 'labeled_train.txt')) as reader:
-            for line in reader.readlines():
-                file_names.append(line.rstrip().split(' ')[0])
-    elif dataset_type == "unlabeled":
-        with open(
-            os.path.join(
-                configs.dataset_path, 'unlabeled_train.txt')) as reader:
-            for line in reader.readlines():
-                file_names.append(line.rstrip().split(' ')[0])
-    elif dataset_type == "student":
-        with open(
-            os.path.join(
-                configs.dataset_path, 'student_train.txt')) as reader:
-            for line in reader.readlines():
-                file_names.append(line.rstrip().split(' ')[0])
+    with open(
+        os.path.join(
+            dataset_path, file_name)) as reader:
+        for line in reader.readlines():
+            file_names.append(line.rstrip().split(" ")[0])
     random.shuffle(file_names)
     return file_names

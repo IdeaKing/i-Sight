@@ -1,7 +1,7 @@
-# tests
+# Tests
 
-To run any test file, move test file into the main directory, then run this:
+To run any test_*.py file, move the file to the main working directory then run the following commands:
 
-```python 
-python [file_name].py
+```python
+python test_*.py
 ```

@@ -5,6 +5,8 @@ training-dir
 testing_dir
 testing-dir
 *.ipynb
+test-new-training
+model
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
