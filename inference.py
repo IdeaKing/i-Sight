@@ -1,0 +1,92 @@
+import os
+import argparse
+import tensorflow as tf
+import matplotlib.pyplot as plt
+
+from src.utils.postprocess import FilterDetections
+from src.utils.visualize import draw_boxes
+from src.utils.file_reader import parse_label_file
+
+
+def preprocess_image(image_path, image_dims):
+    image = tf.io.read_file(image_path)
+    image = tf.io.decode_image(image, channels=3)
+    image = tf.cast(image, dtype=tf.float32)/255.  # Normalize
+    image = tf.image.resize(image, size=image_dims)
+    image = tf.expand_dims(image, axis=0)
+    return image
+
+
+def test(image_path, image_dir, save_dir, model, 
+         image_dims, label_dict, score_threshold, iou_threshold):
+    """Preprocesses, Tests, and Postprocesses"""
+    image = preprocess_image(
+        os.path.join(image_dir, image_path), image_dims)
+
+    pred_cls, pred_box = model(image, training=False)
+    labels, bboxes, scores = FilterDetections(
+        score_threshold=score_threshold, 
+        iou_threshold=iou_threshold, 
+        image_dims=image_dims)(
+            labels=pred_cls,
+            bboxes=pred_box)
+
+    labels = [list(label_dict.keys())[int(l)]
+              for l in labels[0]]
+    bboxes=bboxes[0]
+    scores=scores[0]
+
+    image = draw_boxes(
+        image=tf.squeeze(image, axis=0),
+        bboxes=bboxes,
+        labels=labels,
+        scores=scores)
+
+    image.save(os.path.join(save_dir, image_path))
+
+if __name__ == "__main__":
+    parser=argparse.ArgumentParser(
+        description="Run i-Sight Tests",
+        prog="i-Sight")
+    parser.add_argument("--testing-image-dir",
+                        type=str,
+                        default="data/dataset/VOC2012/TestImages",
+                        help="Path to testing images directory.")
+    parser.add_argument("--save-image-dir",
+                        type=str,
+                        default="data/dataset/Tests",
+                        help="Path to testing images directory.")
+    parser.add_argument("--model-dir",
+                        type=str,
+                        default="training_dir/voc/model-exported",
+                        help="Path to testing model directory.")
+    parser.add_argument("--image-dims",
+                        type=tuple,
+                        default=(512, 512),
+                        help="Size of the input image.")
+    parser.add_argument("--labels-file",
+                        type=str,
+                        default="data/dataset/VOC2012/labels.txt",
+                        help="Path to labels file.")
+    parser.add_argument("--score-threshold",
+                        type=float,
+                        default=0.1,
+                        help="Score threshold for NMS.")
+    parser.add_argument("--iou-threshold",
+                        type=float,
+                        default=0.5,
+                        help="IOU threshold for NMS.")
+    args=parser.parse_args()
+
+    label_dict = parse_label_file(
+        path_to_label_file=args.labels_files)
+
+    model = tf.keras.models.load_model(args.model_dir)
+
+    for image_path in os.listdir(args.testing_image_dir):
+        # Test the model on the image
+        test(image_path=image_path,
+             model=model,
+             image_dims=args.image_dims,
+             label_dict=label_dict,
+             score_threshold=args.score_threshold)
