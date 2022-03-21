@@ -14,8 +14,6 @@ from typing import List, Tuple
 from src.utils.anchors import Encoder
 from src.utils import label_utils
 
-# The full tf.data pipline
-
 
 class Dataset():
     def __init__(self,
@@ -44,25 +42,22 @@ class Dataset():
         self.dataset_type = dataset_type
         self.encoder = Encoder()
 
-    def parse_augment_image(self, file_name):
-        """For augmenting images and bboxes."""
+    def randaug(self, image):
+        """For augmenting images and bboxes. Based on AutoAugment"""
         # Read and preprocess the image
-        file_name = bytes.decode(file_name, encoding="utf-8")
-        image = cv2.imread(file_name)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = cv2.resize(image, self.image_dims)
-        image = self.fundus_preprocessing(image)
         # Augmentation function
         transform = A.Compose(
             [A.Flip(p=0.5),
              A.Rotate(p=0.5),
-             A.ElasticTransform(p=0.25),
-             A.OpticalDistortion(p=0.25)])
-        aug = transform(
-            image=image)
-        image = aug["image"]/255.
-        image = np.array(image, dtype=np.float32)
-        return image
+             A.ElasticTransform(p=0.5),
+             A.OpticalDistortion(p=0.5),
+             A.CoarseDropout(p=0.5),
+             A.GaussianBlur(p=0.25),
+             A.RandomSunFlare(p=0.20),
+             A.ImageCompression(p=0.25),
+             A.RandomBrightnessContrast(p=0.2)])
+        aug = transform(image=image)
+        return np.array(aug["image"], np.float32)
 
     def augment(self, image, label, bbx):
         """For augmenting images and bboxes."""
@@ -151,13 +146,12 @@ class Dataset():
         return np.array(labels), np.array(bbx)
 
     def parse_process_image(self, file_name):
-        # file_name = bytes.decode(file_name, encoding="utf-8")
         image = tf.io.read_file(file_name)
         image = tf.io.decode_jpeg(
             image,
             channels=3)
         # image = self.fundus_preprocessing(image)
-        image = tf.cast(image, tf.float32)/255.# Normalize
+        image = tf.cast(image, tf.float32)/255. # Normalize
         image = tf.image.resize(images=image,
                                 size=self.image_dims)
         image = np.asarray(image, np.float32)
@@ -187,20 +181,47 @@ class Dataset():
             classes=label)
         return image, label, bboxs
 
+    def parse_unlabeled_images(self, file_name):
+        file_name = bytes.decode(file_name, encoding="utf-8")
+        image_file_path = os.path.join(self.dataset_path,
+                                       self.images_dir,
+                                       file_name + ".jpg")
+        image = self.parse_process_image(file_name=image_file_path)
+        # image = self.fundus_preprocessing(image)
+        aug_image = self.randaug(image=image)
+        return image, aug_image
+
     def __call__(self):
         list_ds = tf.data.Dataset.from_tensor_slices(self.file_names)
-        if self.training_type == "object_detection" and self.dataset_type == "labeled":
+        if self.dataset_type == "labeled":
+            if self.training_type == "object_detection":
+                ds = list_ds.map(
+                    lambda x: tf.numpy_function(
+                        self.parse_object_detection,
+                        inp=[x],
+                        Tout=[tf.float32, tf.float32, tf.float32]),
+                    num_parallel_calls=tf.data.experimental.AUTOTUNE,
+                    name="object_detection_parser")
+                ds = ds.shuffle(self.shuffle_size)
+                ds = ds.batch(self.batch_size)
+                ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
+                # ds = ds.cache()
+                return ds
+        elif self.dataset_type == "unlabeled":
             ds = list_ds.map(
-                lambda x: tf.numpy_function(
-                    self.parse_object_detection,
-                    inp=[x],
-                    Tout=[tf.float32, tf.float32, tf.float32]),
-                num_parallel_calls=tf.data.experimental.AUTOTUNE,
-                name="object_detection_parser")
-            # ds = ds.shuffle(self.shuffle_size)
+                    lambda x: tf.numpy_function(
+                        self.parse_unlabeled_images,
+                        inp=[x],
+                        Tout=[tf.float32, tf.float32]),
+                    num_parallel_calls=tf.data.experimental.AUTOTUNE,
+                    name="unlabeled_parser")
+            ds = ds.shuffle(self.shuffle_size)
             ds = ds.batch(self.batch_size)
             ds = ds.prefetch(tf.data.experimental.AUTOTUNE)
+            # ds = ds.cache()
             return ds
+        else:
+            ValueError(f"{self.dataset_type} isn't a valid dataset type.")
 
 
 def load_data(dataset_path, file_name="labeled_train.txt"):
