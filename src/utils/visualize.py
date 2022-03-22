@@ -8,7 +8,10 @@ def draw_boxes(image,
                bboxes,
                labels,
                scores,
-               colors=[(0, 255, 0), (255, 255, 255)]):
+               colors=[(0, 255, 0), 
+                       (255, 255, 255),
+                       (255, 0, 0),
+                       (0, 0, 255)]):
     """
     Draw a set of boxes formatted as [x1, y1, x2, y2] to the image `image`
     """
@@ -31,8 +34,8 @@ def draw_boxes(image,
     for i, (boxes, label, score) in enumerate(zip(bboxes, labels, scores)):
         text = str(f"{label}, {score}")
         x1, y1, x2, y2 = boxes
+        boxes = ((x1, y1), (x2, y2))
         c = colors[i % n_colors]
-
         draw.text([x1 + 5, y1 - 10], text)
         draw.rectangle(boxes, outline=c, width=2)
 

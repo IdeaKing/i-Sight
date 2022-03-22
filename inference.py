@@ -19,6 +19,7 @@ def preprocess_image(image_path, image_dims):
 def test(image_path, image_dir, save_dir, model, 
          image_dims, label_dict, score_threshold, iou_threshold):
     """Preprocesses, Tests, and Postprocesses"""
+    print(f"Processing {image_path}")
     image = preprocess_image(
         os.path.join(image_dir, image_path), image_dims)
 
@@ -26,7 +27,9 @@ def test(image_path, image_dir, save_dir, model,
     labels, bboxes, scores = FilterDetections(
         score_threshold=score_threshold, 
         iou_threshold=iou_threshold, 
-        image_dims=image_dims)(
+        image_dims=image_dims,
+        scales=[0.67781626, 0.08602883, 0.27783391],
+        aspect_ratios=[0.57, 0.59, 0.83])(
             labels=pred_cls,
             bboxes=pred_box)
 
@@ -69,11 +72,11 @@ if __name__ == "__main__":
                         help="Path to labels file.")
     parser.add_argument("--score-threshold",
                         type=float,
-                        default=0.1,
+                        default=0.05,
                         help="Score threshold for NMS.")
     parser.add_argument("--iou-threshold",
                         type=float,
-                        default=0.5,
+                        default=0.9,
                         help="IOU threshold for NMS.")
     args=parser.parse_args()
 

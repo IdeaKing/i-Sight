@@ -21,6 +21,8 @@ class Dataset():
                  dataset_path: str,
                  labels_dict: dict,
                  training_type: str,
+                 scales: Tuple,
+                 aspect_ratios: Tuple,
                  batch_size: int = 4,
                  shuffle_size: int = 64,
                  images_dir: str = "images",
@@ -40,7 +42,8 @@ class Dataset():
         self.image_dims = image_dims
         self.augment_ds = augment_ds
         self.dataset_type = dataset_type
-        self.encoder = Encoder()
+        self.encoder = Encoder(scales=scales, 
+                               aspect_ratios=aspect_ratios)
 
     def randaug(self, image):
         """For augmenting images and bboxes. Based on AutoAugment"""
@@ -121,7 +124,8 @@ class Dataset():
         # Reads a voc annotation and returns
         # a list of tuples containing the ground
         # truth boxes and its respective label
-        root = ET.parse(file_name).getroot()
+        source = open(file_name)
+        root = ET.parse(source).getroot()
         image_size = (int(root.findtext("size/width")),
                       int(root.findtext("size/height")))
         boxes = root.findall("object")
@@ -130,10 +134,10 @@ class Dataset():
 
         for b in boxes:
             bb = b.find("bndbox")
-            bb = (int(bb.findtext("xmin")),
-                  int(bb.findtext("ymin")),
-                  int(bb.findtext("xmax")),
-                  int(bb.findtext("ymax")))
+            bb = (int(float(bb.findtext("xmin"))),
+                  int(float(bb.findtext("ymin"))),
+                  int(float(bb.findtext("xmax"))),
+                  int(float(bb.findtext("ymax"))))
             bbx.append(bb)
             labels.append(
                 int(self.labels_dict[b.findtext("name")]))
@@ -142,6 +146,7 @@ class Dataset():
         bbx = label_utils.to_relative(bbx, image_size)
         # Scale bbx to input image dims
         bbx = label_utils.to_scale(bbx, self.image_dims)
+        source.close()
         return np.array(labels), np.array(bbx)
 
     def parse_process_image(self, file_name):

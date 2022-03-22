@@ -12,7 +12,7 @@ class PseudoLabelObjectDetection():
 
     def __init__(self, 
                  unlabeled_batch_size: int, 
-                 image_dims: Tuple[int, int],
+                 image_dims: Tuple[int, int] = (512, 512),
                  score_threshold: float = 0.1,
                  iou_threshold: float = 0.7) -> None:
         self.unlabeled_batch_size = unlabeled_batch_size
@@ -41,18 +41,17 @@ class PseudoLabelObjectDetection():
 
         # Applies NMS
         pl_cls, pl_bbx, _ = self.postprocess(
-            images=pl_images,
-            regressors=logits_bbx,
-            class_scores=logits_cls)
+            # images=pl_images,
+            bboxes=logits_bbx,
+            labels=logits_cls)
 
         # Applies anchors
-        batched_anchored_cls, batched_anchored_bbx, _ = self.encoder.encode_batch(
+        _, batched_anchored_cls, batched_anchored_bbx = self.encoder.encode_batch(
             images=pl_images,
             classes=pl_cls,
             gt_boxes=pl_bbx)
 
-        return (tf.constant(batched_anchored_cls, dtype=tf.int32),
-                tf.constant(batched_anchored_bbx, dtype=tf.float32))
+        return (batched_anchored_cls, batched_anchored_bbx)
 
 
 class PseudoLabelClassification():

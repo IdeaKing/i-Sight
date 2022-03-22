@@ -8,11 +8,13 @@ from src.utils import label_utils
 
 class FilterDetections:
     def __init__(self,
-                 score_threshold: float = 0.3,
+                 aspect_ratios: list,
+                 scales: list,
+                 score_threshold: float = 0.0,
                  image_dims: Tuple[int, int] = (512, 512),
                  max_boxes: int = 150,
                  max_size: int = 100,
-                 iou_threshold: int = 0.8):
+                 iou_threshold: int = 0.99):
 
         self.score_threshold = score_threshold
         self.image_dims = image_dims
@@ -21,7 +23,8 @@ class FilterDetections:
         self.iou_threshold = iou_threshold
         self.score_threshold = score_threshold
 
-        self.anchors = anchors.Anchors().get_anchors(
+        self.anchors = anchors.Anchors(
+            scales=scales, aspect_ratios=aspect_ratios).get_anchors(
             image_height=image_dims[0],
             image_width=image_dims[1])
 
@@ -34,6 +37,7 @@ class FilterDetections:
         bboxes = label_utils.match_anchors(
             boxes=bboxes,
             anchor_boxes=self.anchors)
+        # boxes = label_utils.to_corners(bboxes)
         # bboxes: (batch_size, x_min, y_min, x_max, y_max)
         tf_bboxes = label_utils.to_tf_format(bboxes)
         # bboxes: (batch_size, y_min, x_min, y_max, x_max)

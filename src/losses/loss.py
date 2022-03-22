@@ -4,6 +4,7 @@ import tensorflow as tf
 from src.utils import label_utils
 from src.losses import iou_utils, pseudo_labels
 
+from typing import Tuple
 
 class FocalLoss(tf.keras.losses.Loss):
     """Focal loss implementations."""
@@ -22,6 +23,7 @@ class FocalLoss(tf.keras.losses.Loss):
         self.gamma = gamma
         self.label_smoothing = label_smoothing
 
+    @tf.autograph.experimental.do_not_convert
     def call(self, y_true, y_pred):
         """Calculate Focal loss.
         Args:
@@ -55,6 +57,7 @@ class BoxLoss(tf.keras.losses.Loss):
         super().__init__(name=name, reduction="none")
         self.delta = delta
 
+    @tf.autograph.experimental.do_not_convert
     def call(self, y_true, y_pred):
         """Calculate Huber loss.
         Args:
@@ -100,7 +103,7 @@ class EffDetLoss(tf.keras.losses.Loss):
         self.num_classes = num_classes
         self.include_iou = include_iou
 
-    # @tf.autograph.experimental.do_not_convert
+    @tf.autograph.experimental.do_not_convert
     def call(self, y_true, y_pred):
         """Calculate Focal and Huber losses for every anchor box.
         Args:
@@ -152,7 +155,7 @@ class EffDetLoss(tf.keras.losses.Loss):
         return loss
 
 
-class UDA(tf.keras.losses.Loss):
+class UDA:
     """UDA Loss Function."""
 
     def __init__(
@@ -161,6 +164,7 @@ class UDA(tf.keras.losses.Loss):
             unlabeled_batch_size: int,
             num_classes: int,
             loss_func: tf.keras.losses.Loss,
+            image_dims: Tuple[int, int] = (512, 512),
             training_type: str = "object_detection"):
         """Unsupervised Data Augmentation for Consistency Training
 
@@ -178,28 +182,45 @@ class UDA(tf.keras.losses.Loss):
         self.unlabeled_batch_size = unlabeled_batch_size
         self.num_classes = num_classes
         self.loss_func = loss_func
-
+        self.training_type = training_type
         if training_type == "object_detection":
-            self.convert_to_labels = pseudo_labels.PseudoLabelObjectDetection()
+            self.convert_to_labels = pseudo_labels.PseudoLabelObjectDetection(
+                unlabeled_batch_size=self.unlabeled_batch_size,
+                image_dims=image_dims)
             self.consistency_loss = tf.keras.losses.KLDivergence()
 
-    @tf.function
+    @tf.autograph.experimental.do_not_convert
     def __call__(self, y_true: tf.Tensor, y_pred: tf.Tensor):
-        labels = y_true
+        labels = y_true #.copy()
         masks = {}
         logits = {}
         loss = {}
-        # Splits the predictions for labeled, and unlabeled
-        logits["l"], logits["u_ori"], logits["u_aug"] = tf.split(
-            y_pred,
-            [self.configs.batch_size,
-             self.configs.unlabeled_batch_size,
-             self.configs.unlabeled_batch_size],
-            axis=0)
+        if self.training_type == "object_detection":
+            # Splits the predictions for labeled, and unlabeled
+            lab_cls, ori_cls, aug_cls = tf.split(y_pred[0],
+                                                 [self.batch_size,
+                                                  self.unlabeled_batch_size,
+                                                  self.unlabeled_batch_size],
+                                                 axis=0)
+            lab_bbx, ori_bbx, aug_bbx = tf.split(y_pred[1],
+                                                 [self.batch_size,
+                                                  self.unlabeled_batch_size,
+                                                  self.unlabeled_batch_size],
+                                                 axis=0)
+            logits["l"], logits["u_ori"], logits["u_aug"] = (lab_cls, lab_bbx), \
+                                                            (ori_cls, ori_bbx), \
+                                                            (aug_cls, aug_bbx)
+        else:
+            # Splits the predictions for labeled, and unlabeled
+            logits["l"], logits["u_ori"], logits["u_aug"] = tf.split(
+                y_pred,
+                [self.batch_size,
+                 self.unlabeled_batch_size,
+                 self.unlabeled_batch_size],
+                axis=0)
         # Step 1: Loss for Labeled Values
-        loss["l"] = self.loss_func(
-            y_true=labels["l"],
-            y_pred=logits["l"])
+        loss["l"] = self.loss_func(y_true=labels["l"],
+                                   y_pred=logits["l"])
         # Step 2: Loss for unlabeled values
         labels["u_ori"] = self.convert_to_labels(
             logits["u_ori"])  # Applies NMS, anchors

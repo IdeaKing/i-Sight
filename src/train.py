@@ -22,6 +22,7 @@ class Train:
                  save_model_frequency: int = 10,
                  print_loss: bool = True,
                  log_every_step: int = 100,
+                 from_pretrained: str = "",
                  from_checkpoint: bool = False):
         """ Trains the model, either using SSL or SL.
 
@@ -78,6 +79,8 @@ class Train:
         self.save_model_frequency = save_model_frequency
         self.print_loss = print_loss
         self.log_every_step = log_every_step
+        self.from_checkpoint = from_checkpoint
+        self.from_pretrained = from_pretrained
 
         # Semi-supervised configs
         self.mpl_label_smoothing = 0.15
@@ -211,7 +214,7 @@ class Train:
             teacher_model.load_weights(from_pretrained)
             tutor_model.load_weights(from_pretrained)
 
-        @tf.function
+        #@tf.function
         def train_step(images, labels, step):
             preds = {}
             loss_vals = {}
@@ -220,14 +223,14 @@ class Train:
             # object detection and segmentation.
             if step < teacher_warmup_steps:
                 with tf.GradientTape() as teacher_tape:
-                    preds["teacher"] = teacher_model(images, training=True)
+                    preds["teacher"] = teacher_model(images["l"], training=True)
                     loss_vals["teacher"] = loss_func(y_true=labels["l"],
                                                      y_pred=preds["teacher"])
                 teacher_grad = teacher_tape.gradient(
                     loss_vals["teacher"], teacher_model.trainable_variables)
                 teacher_grad, _ = tf.clip_by_global_norm(
                     teacher_grad, self.mpl_optimizer_grad_bound)
-                if self.mixed_precision is True:
+                if self.precision == "mixed_float16":
                     teacher_grad = teacher_optimizer.get_unscaled_gradients(
                         teacher_grad)
                 teacher_optimizer.apply_gradients(
@@ -242,7 +245,7 @@ class Train:
                         training=True)
                     logits, labels, masks, loss_vals = uda_loss_func(
                         y_true=labels,
-                        y_pred=tf.cast(all_logits, tf.float32))
+                        y_pred=all_logits)
                 # Change teacher outputs into pseudo-labels
                 labels["u_aug"] = convert_to_labels(logits=logits["u_aug"])
 
@@ -251,40 +254,51 @@ class Train:
                     logits["tu_on_u_aug_and_l"] = tutor_model(
                         images["u"],
                         training=True)
-                    logits["tu_on_u"], logits["tu_on_l_old"] = tf.split(
-                        logits["tu_on_u_aug_and_l"],
-                        [unlabeled_batch_size,
-                         batch_size],
-                        axis=0)
+                    if self.training_type == "object_detection":
+                        tu_on_u_cls, tu_on_aug_cls = tf.split(
+                            logits["tu_on_u_aug_and_l"][0],
+                            [unlabeled_batch_size, batch_size],
+                            axis=0)
+                        tu_on_u_bbx, tu_on_aug_bbx = tf.split(
+                            logits["tu_on_u_aug_and_l"][1],
+                            [unlabeled_batch_size, batch_size],
+                            axis=0)
+                        logits["tu_on_u"] = (tu_on_u_cls, tu_on_u_bbx)
+                        logits["tu_on_l_old"] = (tu_on_aug_cls, tu_on_aug_bbx)
+                    else:
+                        logits["tu_on_u"], logits["tu_on_l_old"] = tf.split(
+                            logits["tu_on_u_aug_and_l"],
+                            [unlabeled_batch_size, batch_size],
+                            axis=0)
                     # Loss between teacher and student
                     loss_vals["tu_on_u"] = loss_func(
                         y_true=labels["u_aug"],
-                        y_pred=tf.cast(logits["tu_on_u"], tf.float32))
+                        y_pred=logits["tu_on_u"])
                     # Loss on labeled data
                     loss_vals["tu_on_l_old"] = loss_func(
                         y_true=labels["l"],
-                        y_pred=tf.cast(logits["tu_on_l_old"], tf.float32))
-                    if self.mixed_precision is True:
-                        loss_vals["s_on_u"] = tutor_optimizer.get_scaled_loss(
-                            loss_vals["s_on_u"])
+                        y_pred=logits["tu_on_l_old"])
+                    if self.precision == "mixed_float16":
+                        loss_vals["tu_on_u"] = tutor_optimizer.get_scaled_loss(
+                            loss_vals["tu_on_u"])
+                tf.print("loss vals", loss_vals)
                 tutor_grad_unlabeled = tutor_tape.gradient(
-                    loss["tu_on_u"],
+                    loss_vals["tu_on_u"],
                     tutor_model.trainable_variables)
                 tutor_grad_unlabeled, _ = tf.clip_by_global_norm(
                     tutor_grad_unlabeled,
                     self.mpl_optimizer_grad_bound)
-                if self.mixed_precision is True:
-                    student_grad_unlabeled = tutor_optimizer.get_unscaled_gradients(
-                        student_grad_unlabeled)
+                if self.precision == "mixed_float16":
+                    tutor_grad_unlabeled = tutor_optimizer.get_unscaled_gradients(
+                        tutor_grad_unlabeled)
                 tutor_optimizer.apply_gradients(
-                    zip(tutor_grad_unlabeled,
-                        tutor_model.trainable_variables))
+                    zip(tutor_grad_unlabeled, tutor_model.trainable_variables))
 
                 # Step 3 Student on labeled values + dot product calculation
                 logits["tu_on_l_new"] = tutor_model(images["l"])
                 loss_vals["tu_on_l_new"] = loss_func(
                     y_true=labels["l"],
-                    y_pred=tf.cast(logits["tu_on_l_new"], tf.float32))
+                    y_pred=logits["tu_on_l_new"])
                 dot_product = loss_vals["tu_on_l_new"] - \
                     loss_vals["tu_on_l_old"]
                 limit = 3.0**(0.5)
@@ -302,7 +316,7 @@ class Train:
                 with teacher_tape:
                     loss_vals["mpl"] = loss_func(
                         y_true=labels["u_aug"],
-                        y_pred=tf.cast(logits["u_aug"], tf.float32))
+                        y_pred=logits["u_aug"])
                     uda_factor = self.uda_factor * tf.math.minimum(
                         1., tf.cast(self.total_steps,
                                     dtype=tf.float32) /
@@ -311,14 +325,14 @@ class Train:
                         loss_vals["u"] * uda_factor +
                         loss_vals["l"] +
                         loss_vals["mpl"] * dot_product)
-                    if self.mixed_precision is True:
+                    if self.precision == "mixed_float16":
                         teacher_loss = teacher_optimizer.get_scaled_loss(
                             teacher_loss)
                 teacher_grad = teacher_tape.gradient(
                     loss_vals["teacher"], teacher_model.trainable_variables)
                 teacher_grad, _ = tf.clip_by_global_norm(
                     teacher_grad, self.mpl_optimizer_grad_bound)
-                if self.mixed_precision is True:
+                if self.precision == "mixed_float16":
                     teacher_grad = teacher_optimizer.get_unscaled_gradients(
                         teacher_grad)
                 teacher_optimizer.apply_gradients(
@@ -364,7 +378,7 @@ class Train:
                                                 step=global_step)
                     if self.print_loss:
                         print(
-                            f"Epoch {epoch} Step {step}/{self.steps_per_epoch} ", \
+                            f"Epoch {epoch} Step {int(step+1)}/{self.steps_per_epoch} ", \
                             " ".join(f"loss-{key} {loss}" for key, loss in loss_vals.items()))
                     global_step = global_step + 1
 
@@ -407,20 +421,20 @@ class Train:
             new_weights.append(curr * (1 - decay) + new * decay)
         ema_model.set_weights(new_weights)
     
-    def update_pseudo_labels(self, pseudo_labler: object, step: int):
+    def update_pseudo_labels(self, pseudo_labeler: object, step: int):
         """Updates the bounding box NMS values for the pseudo-labeler.
         As training progresses, the thresholds increase to prevent misclassifications.
         """
         if step == int((0.30*self.total_steps)):
-            pseudo_labler.update_postprocess(
+            pseudo_labeler.update_postprocess(
                 score_threshold=0.15,
                 iou_threshold=0.6)
         elif step == int((0.50*self.total_steps)):
-            pseudo_labler.update_postprocess(
+            pseudo_labeler.update_postprocess(
                 score_threshold=0.2,
                 iou_threshold=0.65)
         elif step == int((0.70*self.total_steps)):
-            pseudo_labler.update_postprocess(
+            pseudo_labeler.update_postprocess(
                 score_threshold=0.25,
                 iou_threshold=0.7)
 

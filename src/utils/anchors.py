@@ -3,13 +3,10 @@
 import tensorflow as tf
 from .label_utils import compute_iou
 
-
 class Anchors():
     """Anchor boxes generator."""
 
-    def __init__(self,
-                 aspect_ratios=[0.5, 1, 2],
-                 scales=[0, 1/3, 2/3]):
+    def __init__(self, aspect_ratios, scales):
         """Initialize anchors generator.
         Args:
             aspect_ratios: a list of floats representing aspect
@@ -90,10 +87,11 @@ class Encoder():
     def __init__(self,
                  aspect_ratios=[0.5, 1, 2],
                  scales=[0, 1/3, 2/3]):
-        self._anchors = Anchors()
+        self._anchors = Anchors(
+            aspect_ratios=aspect_ratios,
+            scales=scales)
         self._box_variance = tf.cast(
-            [0.1, 0.1, 0.2, 0.2], tf.float32
-        )
+            [0.1, 0.1, 0.2, 0.2], tf.float32)
 
     def _match_anchor_boxes(self, anchor_boxes, gt_boxes, match_iou=0.5, ignore_iou=0.4):
         """Assign ground truth boxes to all anchor boxes."""
@@ -142,17 +140,17 @@ class Encoder():
 
         return class_target, box_target
 
-    def encode_batch(self, images, classes, gt_boxes):
-        """Encode batch for training."""
 
-        images_shape = tf.shape(images)
-        batch_size = images_shape[0]
+def autogen_anchors(path_to_labels_dir, training_dir, clusters):
+    """ Only meant to be ran once per training loop to optimize the Anchors for detection.
 
-        labels = tf.TensorArray(dtype=tf.float32, size=batch_size)
-        boxes = tf.TensorArray(dtype=tf.float32, size=batch_size)
-        for i in range(batch_size):
-            label, bbx = self._encode_sample(
-                images_shape, gt_boxes[i], classes[i])
-            labels = labels.write(i, label)
-            boxes = boxes.write(i, bbx)
-        return images, labels.stack(), boxes.stack()
+    Returns:
+        The aspect_ratios and scale for the Anchor Boxes
+    """
+    from dataset import optimize_anchors, xml_to_csv
+    import os
+
+    path_to_save_csv = os.path.join(training_dir, "labels.csv")
+    xml_to_csv.main(path_to_labels_dir, path_to_save_csv)
+    aspect_ratios, scale = optimize_anchors.main(path_to_save_csv, clusters=clusters)
+    return aspect_ratios, scale

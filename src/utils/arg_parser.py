@@ -40,15 +40,15 @@ parser.add_argument("--precision",
                           mixed_float16 or float32")
 parser.add_argument("--batch-size",
                     type=int,
-                    default=8,
+                    default=2,
                     help="Batch size for training")
 parser.add_argument("--epochs",
                     type=int,
-                    default=300,
+                    default=5,
                     help="The number of epochs to train the model(s)")
 parser.add_argument("--training-method",
                     type=str,
-                    default="supervised",
+                    default="semisupervised",
                     help="The training method, either using \
                           supervised or semisupervised learning")
 parser.add_argument("--optimizer",
@@ -68,10 +68,14 @@ parser.add_argument("--from-checkpoint",
                     type=bool,
                     default=False,
                     help="Continue training from checkpoint.")
+parser.add_argument("--from-pretrained",
+                    type=str,
+                    default="",
+                    help="Path to pretained model.")
 
 # Dataset Configurations
 parser.add_argument("--dataset-files",
-                    default="labeled_train.txt",
+                    default=["labeled_train.txt", "unlabeled_train.txt"],
                     help="Either filename of labeled_train.txt or \
                           List[labeled_train.txt, unlabeled_train.txt]")
 parser.add_argument("--labels-file",

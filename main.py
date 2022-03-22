@@ -1,5 +1,9 @@
+# The main training function for i-Sight
+
 import os
 import tensorflow as tf
+
+from datetime import datetime
 
 from src.utils import arg_parser, file_reader
 from src.models import efficientdet
@@ -66,10 +70,102 @@ def main(args):
         else:
             ValueError(
                 f"{args.training_type} is not an available training type.")
+    elif args.training_method == "semisupervised":
+        labeled_file_names = dataset.load_data(dataset_path=args.dataset_path,
+                                               file_name=args.dataset_files[0])
+        unlabeled_file_names = dataset.load_data(dataset_path=args.dataset_path,
+                                                 file_name=args.dataset_files[0])
+        unlabeled_batch_size = int(len(unlabeled_file_names) / \
+                                   (len(labeled_file_names) / args.batch_size))
+
+        total_steps = int((len(labeled_file_names) / args.batch_size) * args.epochs)
+        teacher_warmup_steps = int(total_steps * 0.1)
+        labels_dict = file_reader.parse_label_file(
+            path_to_label_file=os.path.join(args.dataset_path, args.labels_file))
+        num_classes = len(labels_dict)
+        train_func = train.Train(training_dir=args.training_dir,
+                                 epochs=args.epochs,
+                                 total_steps=total_steps,
+                                 input_shape=args.image_dims,
+                                 precision=args.precision,
+                                 training_type=args.training_type,
+                                 max_checkpoints=args.max_checkpoints,
+                                 checkpoint_frequency=args.checkpoint_frequency,
+                                 save_model_frequency=args.save_model_frequency,
+                                 print_loss=args.print_loss,
+                                 log_every_step=args.log_every_step,
+                                 from_checkpoint=args.from_checkpoint)
+        if args.optimizer == "SGD":
+            teacher_optimizer = tf.keras.optimizers.SGD(learning_rate=args.learning_rate,
+                                                        momentum=args.optimizer_momentum)
+            tutor_optimizer = tf.keras.optimizers.SGD(learning_rate=args.learning_rate,
+                                                      momentum=args.optimizer_momentum)
+        elif args.optimizer == "ADAM":
+            teacher_optimizer = tf.keras.optimizers.Adam(learning_rate=args.learning_rate)
+            tutor_optimizer = tf.keras.optimizers.Adam(learning_rate=args.learning_rate)
+        else:
+            raise ValueError(f"{args.optimizer} is not an available optimizer")
+        optimizers = [teacher_optimizer, tutor_optimizer]
+
+        learning_rates = {"teacher_learning_rate": 0.08,
+                          "teacher_learning_rate_warmup": int(total_steps*0.05),
+                          "teacher_learning_rate_numwait": int(0),
+                          "tutor_learning_rate": 0.05,
+                          "tutor_learning_rate_warmup": int(total_steps*0.05),
+                          "tutor_learning_rate_numwait": 0}
+
+        if args.training_type == "object_detection":
+            dataset_creater = dataset.Dataset(file_names=labeled_file_names,
+                                              dataset_path=args.dataset_path,
+                                              labels_dict=labels_dict,
+                                              training_type=args.training_type,
+                                              batch_size=args.batch_size,
+                                              shuffle_size=args.shuffle_size,
+                                              images_dir=args.images_dir,
+                                              labels_dir=args.labels_dir,
+                                              image_dims=args.image_dims,
+                                              augment_ds=args.augment_ds,
+                                              dataset_type="labeled")
+            labeled_ds = dataset_creater()
+            unlabeled_dataset_creater = dataset.Dataset(file_names=unlabeled_file_names,
+                                                        dataset_path=args.dataset_path,
+                                                        labels_dict=labels_dict,
+                                                        training_type=args.training_type,
+                                                        batch_size=args.batch_size,
+                                                        shuffle_size=args.shuffle_size,
+                                                        images_dir=args.images_dir,
+                                                        labels_dir=args.labels_dir,
+                                                        image_dims=args.image_dims,
+                                                        augment_ds=args.augment_ds,
+                                                        dataset_type="unlabeled")
+            unlabeled_ds = unlabeled_dataset_creater()
+            teacher_model = efficientdet.get_efficientdet(name=args.model,
+                                                          input_shape=args.image_dims,
+                                                          num_classes=num_classes)
+            tutor_model = efficientdet.get_efficientdet(name=args.model,
+                                                        input_shape=args.image_dims,
+                                                        num_classes=num_classes)
+            ema_model = efficientdet.get_efficientdet(name=args.model,
+                                                      input_shape=args.image_dims,
+                                                      num_classes=num_classes)
+            models = [teacher_model, tutor_model, ema_model]
+            loss_func = loss.EffDetLoss(num_classes=num_classes)
+            trained_models = train_func.semisupervised(labeled_dataset=labeled_ds,
+                                                       unlabeled_dataset=unlabeled_ds,
+                                                       model=models,
+                                                       optimizer=optimizers,
+                                                       losses=loss_func,
+                                                       learning_rates=learning_rates,
+                                                       batch_size=args.batch_size,
+                                                       unlabeled_batch_size=unlabeled_batch_size,
+                                                       num_classes=num_classes,
+                                                       from_pretrained=args.from_pretrained,
+                                                       teacher_warmup_steps=teacher_warmup_steps)
     else:
         ValueError(
             f"{args.training_method} is not an available training method.")
 
+    print(f"At {datetime.now()} training of {args.model} was completed.")
 
 if __name__ == "__main__":
     tf.keras.backend.clear_session()
