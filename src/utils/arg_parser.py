@@ -48,7 +48,7 @@ parser.add_argument("--epochs",
                     help="The number of epochs to train the model(s)")
 parser.add_argument("--training-method",
                     type=str,
-                    default="semisupervised",
+                    default="supervised",
                     help="The training method, either using \
                           supervised or semisupervised learning")
 parser.add_argument("--optimizer",

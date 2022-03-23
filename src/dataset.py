@@ -11,8 +11,7 @@ import albumentations as A
 
 from typing import List, Tuple
 
-from src.utils.anchors import Encoder
-from src.utils import label_utils
+from src.utils import label_utils, anchors
 
 
 class Dataset():
@@ -21,8 +20,8 @@ class Dataset():
                  dataset_path: str,
                  labels_dict: dict,
                  training_type: str,
-                 scales: Tuple,
-                 aspect_ratios: Tuple,
+                 scales: Tuple = None,
+                 aspect_ratios: Tuple = None,
                  batch_size: int = 4,
                  shuffle_size: int = 64,
                  images_dir: str = "images",
@@ -42,8 +41,8 @@ class Dataset():
         self.image_dims = image_dims
         self.augment_ds = augment_ds
         self.dataset_type = dataset_type
-        self.encoder = Encoder(scales=scales, 
-                               aspect_ratios=aspect_ratios)
+        self.num_classes = len(self.labels_dict)
+        self.anchors = anchors.anchors_for_shape((self.image_dims))
 
     def randaug(self, image):
         """For augmenting images and bboxes. Based on AutoAugment"""
@@ -140,12 +139,13 @@ class Dataset():
                   int(float(bb.findtext("ymax"))))
             bbx.append(bb)
             labels.append(
-                int(self.labels_dict[b.findtext("name")]))
+                [int(self.labels_dict[b.findtext("name")])])
         bbx = tf.stack(bbx)
         # bbx are in relative mode
-        bbx = label_utils.to_relative(bbx, image_size)
-        # Scale bbx to input image dims
-        bbx = label_utils.to_scale(bbx, self.image_dims)
+        bbx = label_utils.to_relative(bbox=bbx, 
+                                      image_dims=image_size)
+        bbx = label_utils.to_scale(bbox=bbx, 
+                                   image_dims=self.image_dims)                     
         source.close()
         return np.array(labels), np.array(bbx)
 
@@ -175,15 +175,17 @@ class Dataset():
             file_name=label_file_path)
         image, label, bboxs = self.augment(
             image=image, label=label, bbx=bboxs)
-        bboxs = label_utils.to_xywh(bboxs)
+        # bboxs = label_utils.to_xywh(bboxs)
         image, label, bboxs = (np.array(image, np.float32),
-                               np.array(label, np.int32),
+                               np.array(label, np.float32),
                                np.array(bboxs, np.float32))
-        label, bboxs = self.encoder._encode_sample(
-            image_shape=self.image_dims,
-            gt_boxes=bboxs,
-            classes=label)
-        return image, label, bboxs
+        ground_truth = np.concatenate([bboxs, label], axis=-1)
+        labels, anchor_bbx = anchors.anchor_targets_bbox(
+            anchors=self.anchors,
+            image=image, 
+            annotations=ground_truth,
+            num_classes=self.num_classes)
+        return image, labels, anchor_bbx
 
     def parse_unlabeled_images(self, file_name):
         file_name = bytes.decode(file_name, encoding="utf-8")

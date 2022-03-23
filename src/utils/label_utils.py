@@ -1,3 +1,4 @@
+
 """Implementation of utility functions."""
 
 import tensorflow as tf
