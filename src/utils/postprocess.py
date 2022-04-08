@@ -12,7 +12,7 @@ class FilterDetections:
                  image_dims: Tuple[int, int] = (512, 512),
                  max_boxes: int = 150,
                  max_size: int = 100,
-                 iou_threshold: int = 0.7):
+                 iou_threshold: int = 0.8):
 
         self.score_threshold = score_threshold
         self.image_dims = image_dims

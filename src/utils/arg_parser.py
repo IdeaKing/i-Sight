@@ -11,12 +11,10 @@ parser.add_argument("--training-type",
                     help="Determines the training type, can either be \
                           object_detection, segmentation, or classification")
 parser.add_argument("--dataset-path",
-                    "-D",
                     type=str,
                     default="datasets/data/VOC2012",
                     help="Path to dataset")
 parser.add_argument("--training-dir",
-                    "-T",
                     type=str,
                     default="training_dir/voc",
                     help="Path to the training directory")

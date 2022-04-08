@@ -1,7 +1,8 @@
 # Deep learning training requirements
 tensorflow==2.7.0
-opencv-python
+opencv-python # Only needed for fundus images
 albumentations
 matplotlib
+Pillow
 
 # Web development backends
