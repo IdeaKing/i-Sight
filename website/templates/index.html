@@ -1,0 +1,65 @@
+{% extends "base.html" %} {% block content %}
+
+<div class="main">
+  <div class="title">
+    <h3>i-Sight Holistic Diagnosis</h3>
+      <p>Instructions: Upload a fundus and/or OCT image and click submit.</p>
+      <p>OCT Images can not be in vender proprietary formats, and must be in JPG, PNG, JPEG Formats.</p> 
+      <p><a href="https://sites.google.com/view/isight/help">Click here for help.</a></p>
+  </div>
+  <table>
+    <tr>
+      <td>
+        <div class="panel">
+          <input id="file-upload-fundus" class="hidden" type="file" accept="image/x-png,image/gif,image/jpeg" />
+          <label for="file-upload-fundus" id="file-drag-fundus" class="upload-box">
+            <div id="upload-caption-fundus">(Required) Attach fundus image</div>
+            <img id="image-preview-fundus" class="hidden" />
+          </label>
+        </div>
+      </td>
+      <td>
+        <div class="panel">
+          <input id="file-upload-oct" class="hidden" type="file" accept="image/x-png,image/gif,image/jpeg" />
+          <label for="file-upload-oct" id="file-drag-oct" class="upload-box">
+            <div id="upload-caption-oct">(Optional) Attach OCT image</div>
+            <img id="image-preview-oct" class="hidden" />
+          </label>
+        </div>
+      </td>
+  </table>
+  <div style="margin-bottom: 2rem;">
+    <input type="button" value="Submit" class="button" onclick="submitImage();" />
+    <input type="button" value="Clear" class="button" onclick="reload();" />
+  </div>
+  <table>
+    <tr>
+      <td>
+        <div id="image-box-fundus" >
+          <img id="image-display-fundus"/>
+          <div id="pred-result-fundus" class="hidden"></div>
+          <svg id="loader-fundus" class="hidden" viewBox="0 0 32 32" width="32" height="32">
+            <circle id="spinner" cx="16" cy="16" r="14" fill="none"></circle>
+          </svg>
+        </div>
+      </td>
+      <td>
+        <div id="image-box-oct" >
+          <img id="image-display-oct"/>
+          <div id="pred-result-oct" class="hidden"></div>
+          <svg id="loader-oct" class="hidden" viewBox="0 0 32 32" width="32" height="32">
+            <circle id="spinner" cx="16" cy="16" r="14" fill="none"></circle>
+          </svg>
+        </div>
+      </td>
+    </tr>
+  </table>
+  <div>
+    <div id="image-box-prediction">
+      <img id="image-display-prediction"/>
+      <div id="pred-result-prediction" class="hidden"></div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

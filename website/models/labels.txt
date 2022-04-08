@@ -1,0 +1,8 @@
+cotton_wool_spot
+drusen
+geography_atrophy
+hard_exudates
+hemorrhages
+optic_disc
+macula
+microaneurysms

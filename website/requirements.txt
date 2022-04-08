@@ -1,0 +1,12 @@
+# AI Requirements
+tensorflow>=2.7.0
+pillow==9.0.1
+opencv-python==4.5.5.64
+sympy==1.10.1
+
+# Backend Server Requirements
+Flask==2.1.0
+gevent==1.4.0
+Jinja2==3.0.0
+
+
