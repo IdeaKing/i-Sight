@@ -1,8 +1,12 @@
+import os
+import logging
+import datetime
+
 import tensorflow as tf
 
 from flask import (Flask, request, render_template, jsonify)
 
-from src import main, logging
+from src import main
 from src.utils import hosting_utils
 
 # Initialize the Tensorflow models
@@ -15,6 +19,36 @@ models = {
 
 # Initialize the Flask Webapp
 application = Flask(__name__)
+
+# Check if the log directory exists, if not create it
+if not os.path.exists("logs"):
+    os.makedirs("logs")
+
+# Logging Data
+logging.basicConfig(
+    filename=os.path.join(
+        "logs", 
+        "application-" + str(datetime.datetime.now().strftime("%Y-%m-%d")) + ".log"), 
+    level=logging.DEBUG)
+
+# The logging function into a file
+@application.after_request
+def after_request(response):
+    """Logging after every request."""
+    logger = logging.getLogger("application.access")
+    logger.info(
+        "%s [%s] %s %s %s %s %s %s %s",
+        request.remote_addr,
+        datetime.datetime.utcnow().strftime("%d/%b/%Y:%H:%M:%S.%f")[:-3],
+        request.method,
+        request.path,
+        request.scheme,
+        response.status,
+        response.content_length,
+        request.referrer,
+        request.user_agent,
+    )
+    return response
 
 @application.route("/", methods=["GET"])
 def index():
