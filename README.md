@@ -4,7 +4,7 @@ i-Sight incorporates labeled and unlabeled data to create holistic diagnoses of 
 
 ## Demo Video
 
-[![i-Sight Demo]({https://github.com/IdeaKing/i-Sight/blob/main/g3doc/isight_logo.jpg})]({https://youtu.be/09_SoDtCUDg} "i-Sight Demo")
+[![i-Sight Demo](https://github.com/IdeaKing/i-Sight/blob/main/g3doc/isight_logo.jpg)](https://youtu.be/09_SoDtCUDg)
 
 ## Sample outputs
 
