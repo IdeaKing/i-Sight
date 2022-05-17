@@ -1,5 +1,9 @@
 # i-Sight: Looking into the Future of Medical AI.
 
+i-Sight incorporates labeled and unlabeled data to create holistic diagnoses of the eye. This attempt focuses primarily on the retinal Fundus and OCT images.
+
+## How it works
+
 
 
 ## Commands for running training
