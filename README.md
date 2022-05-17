@@ -2,9 +2,17 @@
 
 i-Sight incorporates labeled and unlabeled data to create holistic diagnoses of the eye. This attempt focuses primarily on the retinal Fundus and OCT images.
 
-## How it works
+## Demo Video
 
+[![i-Sight Demo]({https://github.com/IdeaKing/i-Sight/blob/main/g3doc/isight_logo.jpg})]({https://youtu.be/09_SoDtCUDg} "i-Sight Demo")
 
+## Sample outputs
+
+Sample fundus output:
+![Fundus](https://github.com/IdeaKing/i-Sight/blob/main/g3doc/full_out.png)
+
+Sample OCT output:
+![OCT](https://github.com/IdeaKing/i-Sight/blob/main/g3doc/output_oct_od.png)
 
 ## Commands for running training
 
