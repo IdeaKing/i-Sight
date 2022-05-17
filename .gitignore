@@ -8,6 +8,9 @@ testing-dir
 test-new-training
 model
 user_saves/*
+website
+pretrained_weights
+pipeline
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
