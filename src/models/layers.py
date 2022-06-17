@@ -11,7 +11,7 @@ class BiFPNLayerNode(tf.keras.layers.Layer):
                  channels=64,
                  kernel_size=3,
                  depth_multiplier=1,
-                 name='BiFPN_node'):
+                 name="BiFPN_node"):
         """Ininitialize node.
         Args:
             channels: an integer representing number of units inside the node.
@@ -30,18 +30,18 @@ class BiFPNLayerNode(tf.keras.layers.Layer):
         self.w = self.add_weight(
             shape=(len(inputs), self.channels),
             initializer="ones",
-            name='sum_weights',
+            name="sum_weights",
             trainable=True
         )
 
         self.conv2d = tf.keras.layers.SeparableConv2D(
             self.channels,
             self.kernel_size,
-            padding='same',
+            padding="same",
             depth_multiplier=self.depth_multiplier,
             pointwise_initializer=tf.initializers.variance_scaling(),
             depthwise_initializer=tf.initializers.variance_scaling(),
-            name='node_conv'
+            name="node_conv"
         )
 
         self.bn = tf.keras.layers.BatchNormalization()
@@ -71,8 +71,8 @@ class BiFPNLayer(tf.keras.layers.Layer):
                  channels=64,
                  kernel_size=3,
                  depth_multiplier=1,
-                 pooling_strategy='avg',
-                 name='BiFPN_Layer'):
+                 pooling_strategy="avg",
+                 name="BiFPN_Layer"):
         """Initialize BiFPN layer.
         Args:
             channels: an integer representing number of units inside each fusing node.
@@ -81,7 +81,7 @@ class BiFPNLayer(tf.keras.layers.Layer):
             depth_multiplier: an integer representing depth multiplier for
                 separable convolution layers in BiFPN nodes.
             pooling_strategy: a string representing pooling strategy.
-                'avg' or 'max'. Otherwise the max pooling will be selected.
+                "avg" or "max". Otherwise the max pooling will be selected.
             name: a string representing layer name.
         """
         super().__init__(name=name)
@@ -90,11 +90,11 @@ class BiFPNLayer(tf.keras.layers.Layer):
         self.first_step_nodes = [BiFPNLayerNode(channels=channels,
                                                 kernel_size=kernel_size,
                                                 depth_multiplier=depth_multiplier,
-                                                name=f'step_1_level_{i}_node') for i in range(4, 7)]
+                                                name=f"step_1_level_{i}_node") for i in range(4, 7)]
         self.second_step_nodes = [BiFPNLayerNode(channels=channels,
                                                  kernel_size=kernel_size,
                                                  depth_multiplier=depth_multiplier,
-                                                 name=f'step_2_level_{i}_node') for i in range(3, 8)]
+                                                 name=f"step_2_level_{i}_node") for i in range(3, 8)]
 
     def call(self, inputs, training=False):
         """Perfrom features fusing from different levels."""
@@ -120,7 +120,7 @@ class BiFPNLayer(tf.keras.layers.Layer):
 
     def _pool2d(self, inputs):
         #TODO: Optimize calling of pooling layer.
-        if self.pooling_strategy == 'avg':
+        if self.pooling_strategy == "avg":
             return tf.keras.layers.AveragePooling2D()(inputs)
         else:
             return tf.keras.layers.MaxPool2D()(inputs)
@@ -137,8 +137,8 @@ class BiFPN(tf.keras.layers.Layer):
                  depth=3,
                  kernel_size=3,
                  depth_multiplier=1,
-                 pooling_strategy='avg',
-                 name='BiFPN'):
+                 pooling_strategy="avg",
+                 name="BiFPN"):
         super().__init__(name=name)
         """Initialize BiFPN.
         Args:
@@ -150,7 +150,7 @@ class BiFPN(tf.keras.layers.Layer):
             depth_multiplier: an integer representing depth multiplier for
                 separable convolution layers in BiFPN nodes.
             pooling_strategy: a string representing pooling strategy in BiFPN layers.
-                'avg' or 'max'. Otherwise the max pooling will be selected.
+                "avg" or "max". Otherwise the max pooling will be selected.
             name: a string representing layer name.
         """
         self.depth = depth
@@ -159,11 +159,11 @@ class BiFPN(tf.keras.layers.Layer):
 
         self.convs_1x1 = [tf.keras.layers.Conv2D(channels,
                                                  1,
-                                                 padding='same',
-                                                 name=f'1x1_conv_level_{3+i}') for i in range(5)]
+                                                 padding="same",
+                                                 name=f"1x1_conv_level_{3+i}") for i in range(5)]
 
         self.bns = [
-            tf.keras.layers.BatchNormalization(name=f'bn_level_{i}') for i in range(5)
+            tf.keras.layers.BatchNormalization(name=f"bn_level_{i}") for i in range(5)
         ]
         self.act = tf.keras.layers.Activation(tf.nn.silu)
 
@@ -171,7 +171,7 @@ class BiFPN(tf.keras.layers.Layer):
                                         kernel_size=kernel_size,
                                         depth_multiplier=depth_multiplier,
                                         pooling_strategy=pooling_strategy,
-                                        name=f'BiFPN_Layer_{i}') for i in range(depth)]
+                                        name=f"BiFPN_Layer_{i}") for i in range(depth)]
 
     def call(self, inputs, training=False):
         assert len(inputs) == 5
@@ -196,7 +196,7 @@ class ClassDetector(tf.keras.layers.Layer):
                  depth=3,
                  kernel_size=3,
                  depth_multiplier=1,
-                 name='class_det'):
+                 name="class_det"):
         """Initialize classification model.
         Args:
             num_classes: an integer representing number of classes
@@ -223,16 +223,16 @@ class ClassDetector(tf.keras.layers.Layer):
         self.convs = [tf.keras.layers.SeparableConv2D(
             channels,
             kernel_size,
-            padding='same',
+            padding="same",
             depth_multiplier=depth_multiplier,
             pointwise_initializer=tf.initializers.variance_scaling(),
             depthwise_initializer=tf.initializers.variance_scaling(),
             bias_initializer=tf.zeros_initializer(),
-            name=f'class_det_separable_conv_{i}'
+            name=f"class_det_separable_conv_{i}"
         ) for i in range(depth)]
 
         self.bns = [
-            tf.keras.layers.BatchNormalization(name=f'bn_{i}') for i in range(depth)
+            tf.keras.layers.BatchNormalization(name=f"bn_{i}") for i in range(depth)
         ]
         self.act = tf.keras.layers.Activation(tf.nn.silu)
 
@@ -240,13 +240,14 @@ class ClassDetector(tf.keras.layers.Layer):
         self.classes = tf.keras.layers.SeparableConv2D(
             num_classes * num_anchors,
             kernel_size,
-            padding='same',
+            padding="same",
             depth_multiplier=depth_multiplier,
             activation=None,
             pointwise_initializer=tf.initializers.variance_scaling(),
             depthwise_initializer=tf.initializers.variance_scaling(),
             bias_initializer=bias_init,
-            name='class_preds'
+            name="class_preds",
+            dtype="float32"
         )
 
     def call(self, inputs, training=False):
@@ -268,7 +269,7 @@ class BoxRegressor(tf.keras.layers.Layer):
                  depth=3,
                  kernel_size=3,
                  depth_multiplier=1,
-                 name='box_regressor'):
+                 name="box_regressor"):
         """Initialize regression model.
         Args:
             channels: an integer representing number of filters
@@ -293,29 +294,30 @@ class BoxRegressor(tf.keras.layers.Layer):
         self.convs = [tf.keras.layers.SeparableConv2D(
             channels,
             kernel_size,
-            padding='same',
+            padding="same",
             depth_multiplier=depth_multiplier,
             pointwise_initializer=tf.initializers.variance_scaling(),
             depthwise_initializer=tf.initializers.variance_scaling(),
             bias_initializer=tf.zeros_initializer(),
-            name=f'box_reg_separable_conv_{i}'
+            name=f"box_reg_separable_conv_{i}"
         ) for i in range(depth)]
 
         self.bns = [
-            tf.keras.layers.BatchNormalization(name=f'bn_{i}') for i in range(depth)
+            tf.keras.layers.BatchNormalization(name=f"bn_{i}") for i in range(depth)
         ]
         self.act = tf.keras.layers.Activation(tf.nn.silu)
 
         self.boxes = tf.keras.layers.SeparableConv2D(
             4 * num_anchors,
             kernel_size,
-            padding='same',
+            padding="same",
             depth_multiplier=depth_multiplier,
             activation=None,
             pointwise_initializer=tf.initializers.variance_scaling(),
             depthwise_initializer=tf.initializers.variance_scaling(),
             bias_initializer=tf.zeros_initializer(),
-            name='box_preds'
+            name="box_preds",
+            dtype="float32"
         )
 
     def call(self, inputs, training=False):

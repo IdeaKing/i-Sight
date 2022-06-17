@@ -47,3 +47,7 @@ python main.py --train \
                --save-model-frequency 10 \
                --checkpoint-frequency 10
 ```
+
+## Notes
+
+* Backbones and output layers must have a specified dtype of float32.
