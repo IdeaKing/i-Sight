@@ -2,6 +2,8 @@
 
 i-Sight incorporates labeled and unlabeled data to create holistic diagnoses of the eye. This attempt focuses primarily on the retinal Fundus and OCT images.
 
+i-Sight is the winning project of the **Leidos 2022 Young Virginia STEM Research Award**.
+
 ## Demo Video
 
 [![i-Sight Demo](https://github.com/IdeaKing/i-Sight/blob/main/g3doc/isight_logo.jpg)](https://youtu.be/09_SoDtCUDg)
